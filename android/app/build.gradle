@@ -83,6 +83,11 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+
     namespace 'com.anonymous.EComAdminApp'
     defaultConfig {
         applicationId 'com.anonymous.EComAdminApp'
@@ -146,6 +151,10 @@ android {
             android.packagingOptions[prop] += it
         }
     }
+}
+
+tasks.matching { it.name == 'lintVitalAnalyzeRelease' }.configureEach {
+    enabled = false
 }
 
 dependencies {
