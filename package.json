@@ -1,22 +1,33 @@
 {
-  "name": "e-com-admin-app",
+  "name": "svk-ecom-pro",
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "expo": "~57.0.11",
-    "expo-status-bar": "~57.0.1",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "12.0.1",
+    "@react-navigation/bottom-tabs": "^7.18.16",
+    "@react-navigation/native": "^7.3.16",
+    "@react-navigation/stack": "^7.10.22",
+    "axios": "^1.19.0",
+    "lucide-react-native": "^1.31.0",
     "react": "19.2.3",
-    "react-native": "0.86.2"
+    "react-native": "0.86.2",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-svg": "15.15.4",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@react-native-community/cli": "latest",
+    "@react-native/metro-config": "latest",
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "start": "react-native start",
+    "android": "react-native run-android",
+    "ios": "react-native run-ios"
   },
   "private": true
 }

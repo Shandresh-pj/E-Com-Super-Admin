@@ -1,41 +1,161 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# =============================================================================
+# SVK E-Com Pro — React Native Enterprise .gitignore
+# Single Unified Git Ignore Configuration
+# =============================================================================
 
-# dependencies
+# -----------------------------------------------------------------------------
+# 1. Package Manager & Dependencies
+# -----------------------------------------------------------------------------
 node_modules/
+.pnp/
+.pnp.js
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
 
-# Expo
+# -----------------------------------------------------------------------------
+# 2. React Native & Metro Bundler
+# -----------------------------------------------------------------------------
+.metro-health-check*
+*.jsbundle
+*.bundle
 .expo/
-dist/
-web-build/
-expo-env.d.ts
+.expo-shared/
 
-# Native
+# -----------------------------------------------------------------------------
+# 3. Android Native Builds, Caches & Local Configurations
+# -----------------------------------------------------------------------------
+# Gradle caches and build directories
+.gradle/
+**/build/
+android/.gradle/
+android/build/
+android/app/build/
+
+# Native CMake / C++ build outputs
+.cxx/
+**/CMakeCache.txt
+**/CMakeFiles/
+android/.cxx/
+android/app/.cxx/
+
+# Android Studio local properties (SDK paths, machine specific)
+local.properties
+android/local.properties
+
+# Kotlin compiler caches
 .kotlin/
+android/.kotlin/
+
+# Android profiling captures & generated inline modules
+captures/
+android/captures/
+android/app/src/main/java/inline/
+
+# -----------------------------------------------------------------------------
+# 4. iOS Native Builds & CocoaPods
+# -----------------------------------------------------------------------------
+ios/Pods/
+ios/build/
+ios/DerivedData/
+ios/*.xcworkspace/xcuserdata
+ios/*.xcodeproj/xcuserdata
+ios/*.xcodeproj/project.xcworkspace/xcuserdata
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.moved-aside
+*.pbxuser
+
+# -----------------------------------------------------------------------------
+# 5. Security: Keystores, Certificates & Private Keys
+# -----------------------------------------------------------------------------
+# Never commit release keys or private signing credentials
 *.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
+*.pem
 *.mobileprovision
+*.cer
+*.crt
 
-# Metro
-.metro-health-check*
+# Whitelist standard local development debug keystore for React Native
+!android/app/debug.keystore
+!debug.keystore
 
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
+# -----------------------------------------------------------------------------
+# 6. Environment & Secret Configurations
+# -----------------------------------------------------------------------------
+.env
+.env.*
+.env*.local
+!.env.example
+!.env.sample
+!.env.template
 
+# -----------------------------------------------------------------------------
+# 7. Debug, Crash Logs & JVM Dumps
+# -----------------------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# -----------------------------------------------------------------------------
+# 8. TypeScript, Testing & Build Artifacts
+# -----------------------------------------------------------------------------
+*.tsbuildinfo
+dist/
+web-build/
+coverage/
+.nyc_output/
+.eslintcache
+
+# -----------------------------------------------------------------------------
+# 9. IDEs & Editor Configurations
+# -----------------------------------------------------------------------------
+# JetBrains / Android Studio
+.idea/
+android/.idea/
+*.iml
+android/*.iml
+android/app/*.iml
+*.ipr
+*.iws
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# AI Agent Local Metadata
+.claude/
+
+# -----------------------------------------------------------------------------
+# 10. Operating System Generated Files
+# -----------------------------------------------------------------------------
 # macOS
 .DS_Store
-*.pem
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 
-# local env files
-.env*.local
-
-# typescript
-*.tsbuildinfo
-
-# generated native folders
-/ios
-/android
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
