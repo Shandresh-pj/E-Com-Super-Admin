@@ -8,11 +8,14 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { ScreenContainer } from '../../../components/common/ScreenContainer';
 import { Header } from '../../../components/common/Header';
 import { OrderCard } from '../../../components/cards/OrderCard';
 import { TextField } from '../../../components/inputs/TextField';
+import { PrimaryButton } from '../../../components/buttons/PrimaryButton';
 import { Badge } from '../../../components/common/Badge';
 import { Card } from '../../../components/common/Card';
 import { OrderService, Order } from '../services/orderService';
@@ -23,6 +26,7 @@ import {
   ShoppingBag,
   Search,
   X,
+  Plus,
   IndianRupee,
   Clock,
   CheckCircle,
@@ -32,6 +36,7 @@ import {
   MapPin,
   CreditCard,
 } from 'lucide-react-native';
+
 
 const STATUS_FILTERS = [
   { id: 'ALL', label: 'All' },
@@ -57,6 +62,15 @@ export const OrdersScreen: React.FC = () => {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [deletingOrder, setDeletingOrder] = useState(false);
 
+  // Create Order Modal
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [custName, setCustName] = useState('');
+  const [custPhone, setCustPhone] = useState('');
+  const [shippingAddr, setShippingAddr] = useState('');
+  const [orderAmount, setOrderAmount] = useState('');
+  const [payMethod, setPayMethod] = useState<'CASH' | 'UPI' | 'CARD'>('CASH');
+  const [creatingOrder, setCreatingOrder] = useState(false);
+
   const fetchOrders = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
@@ -81,6 +95,38 @@ export const OrdersScreen: React.FC = () => {
     setSelectedOrder(order);
     setDetailVisible(true);
   };
+
+  const handleCreateOrder = async () => {
+    if (!custName.trim() || !orderAmount.trim()) {
+      Alert.alert('Required', 'Please enter customer name and total amount.');
+      return;
+    }
+
+    setCreatingOrder(true);
+    try {
+      const created = await OrderService.createOrder({
+        customer_name: custName,
+        customer_phone: custPhone,
+        shipping_address: shippingAddr,
+        total_amount: parseFloat(orderAmount),
+        payment_method: payMethod,
+        payment_status: 'PAID',
+        status: 'PENDING',
+      });
+      setAllOrders((prev) => [created, ...prev]);
+      Alert.alert('Success', `Order #${created.order_number || created.id} created successfully.`);
+      setAddModalVisible(false);
+      setCustName('');
+      setCustPhone('');
+      setShippingAddr('');
+      setOrderAmount('');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to create order');
+    } finally {
+      setCreatingOrder(false);
+    }
+  };
+
 
   const STATUS_CYCLE = ['PENDING', 'PROCESSING', 'DELIVERED', 'COMPLETED'];
 
@@ -171,7 +217,21 @@ export const OrdersScreen: React.FC = () => {
   return (
     <View style={styles.root}>
       <ScreenContainer scrollable={true} refreshing={refreshing} onRefresh={() => fetchOrders(true)}>
-        <Header title="Orders Register" subtitle="Real-time E-Commerce Transaction Log" />
+        <Header
+          title="Orders Register"
+          subtitle="Real-time E-Commerce Transaction Log"
+          rightAction={
+            <TouchableOpacity
+              onPress={() => setAddModalVisible(true)}
+              style={[styles.addBtn, { backgroundColor: c.primary }]}
+              activeOpacity={0.8}
+            >
+              <Plus size={16} color="#FFFFFF" strokeWidth={2.5} />
+              <Text style={styles.addBtnText}>New Order</Text>
+            </TouchableOpacity>
+          }
+        />
+
 
         {/* ── Financial Metrics Summary ─────────────────────────────── */}
         <View style={styles.metricsRow}>
@@ -421,6 +481,75 @@ export const OrdersScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* ── Create Order Modal ──────────────────────────────────────── */}
+      <Modal
+        visible={addModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setAddModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.formSheet, { backgroundColor: theme.isDark ? c.surface : '#FFFFFF', borderColor: c.border }]}>
+              <View style={styles.modalHeader}>
+                <View>
+                  <Text style={[theme.typography.h3, { color: c.textPrimary }]}>Create Manual Order</Text>
+                  <Text style={[theme.typography.caption, { color: c.textMuted }]}>
+                    Customer billing & transaction settlement
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setAddModalVisible(false)} style={styles.closeBtn}>
+                  <X size={20} color={c.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ paddingBottom: 160 }}
+              >
+                <TextField label="Customer Name *" placeholder="e.g. Anand Kumar" value={custName} onChangeText={setCustName} />
+                <TextField label="Customer Phone" placeholder="e.g. +91 98765 43210" value={custPhone} onChangeText={setCustPhone} keyboardType="phone-pad" />
+                <TextField label="Delivery / Shipping Address" placeholder="e.g. 42 Gandhi Road, Chennai" value={shippingAddr} onChangeText={setShippingAddr} multiline />
+                <TextField label="Order Total Amount (₹) *" placeholder="e.g. 1500" value={orderAmount} onChangeText={setOrderAmount} keyboardType="numeric" />
+
+                <Text style={[styles.pickerLabel, { color: c.textSecondary }]}>Payment Method:</Text>
+                <View style={styles.payMethodsRow}>
+                  {(['CASH', 'UPI', 'CARD'] as ('CASH' | 'UPI' | 'CARD')[]).map((m) => (
+                    <TouchableOpacity
+                      key={m}
+                      onPress={() => setPayMethod(m)}
+                      style={[
+                        styles.payMethodChip,
+                        {
+                          backgroundColor: payMethod === m ? c.primary : c.surfaceSecondary,
+                          borderColor: payMethod === m ? c.primary : c.border,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.payMethodText, { color: payMethod === m ? '#FFFFFF' : c.textSecondary }]}>
+                        {m}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+
+              <View style={{ marginTop: 14 }}>
+                <PrimaryButton
+                  title="Generate & Save Order"
+                  onPress={handleCreateOrder}
+                  loading={creatingOrder}
+                />
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 };
@@ -429,6 +558,48 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 12,
+    gap: 4,
+  },
+  addBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  formSheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderTopWidth: 1,
+    padding: 22,
+    maxHeight: '85%',
+  },
+  pickerLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  payMethodsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  payMethodChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  payMethodText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
   metricsRow: {
     flexDirection: 'row',
     gap: 8,

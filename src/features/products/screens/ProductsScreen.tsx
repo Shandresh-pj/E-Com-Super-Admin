@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Modal,
+  FlatList,
   ScrollView,
   Image,
   Alert,
@@ -79,14 +80,26 @@ export const ProductsScreen: React.FC = () => {
   // Active Gallery Image Index
   const [activeImgIndex, setActiveImgIndex] = useState(0);
 
-  const fetchProducts = async (isRefresh = false) => {
+  // Debounce search to avoid API call on every keystroke
+  const searchDebounceRef = useRef<any>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  const handleSearchChange = useCallback((text: string) => {
+    setSearchQuery(text);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedSearch(text);
+    }, 300);
+  }, []);
+
+  const fetchProducts = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
 
     try {
       const [prodData, catData] = await Promise.all([
-        ProductService.getProducts(searchQuery),
+        ProductService.getProducts(debouncedSearch),
         ProductService.getCategories(),
       ]);
       setProducts(prodData);
@@ -97,11 +110,11 @@ export const ProductsScreen: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [debouncedSearch]);
 
   useEffect(() => {
     fetchProducts();
-  }, [searchQuery]);
+  }, [debouncedSearch, fetchProducts]);
 
   // Open Detail View
   const handleOpenDetail = (prod: Product) => {
@@ -291,7 +304,7 @@ export const ProductsScreen: React.FC = () => {
             placeholder="Search products by title, SKU, barcode..."
             placeholderTextColor={c.textMuted}
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={handleSearchChange}
             style={[styles.searchInput, { color: c.textPrimary }]}
           />
           {searchQuery ? (
@@ -355,16 +368,29 @@ export const ProductsScreen: React.FC = () => {
             title="No Products Found"
             description={searchQuery ? `No matches for "${searchQuery}".` : 'No items cataloged yet. Tap Add Product to create one.'}
           />
-        ) : (
-          filteredProducts.map((item) => (
-            <ProductCard
-              key={item.id}
-              product={item}
-              onPress={() => handleOpenDetail(item)}
-              onEdit={() => handleOpenEdit(item)}
-              onDelete={() => handleDeleteProduct(item)}
-            />
-          ))
+        ) : null}
+
+        {/* FlatList replaces map() for virtualized, performant rendering */}
+        {!loading && !error && filteredProducts.length > 0 && (
+          <FlatList
+            data={filteredProducts}
+            keyExtractor={(item) => String(item.id)}
+            renderItem={({ item }) => (
+              <ProductCard
+                product={item}
+                onPress={() => handleOpenDetail(item)}
+                onEdit={() => handleOpenEdit(item)}
+                onDelete={() => handleDeleteProduct(item)}
+              />
+            )}
+            initialNumToRender={8}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            removeClippedSubviews={Platform.OS === 'android'}
+            scrollEnabled={false}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 8 }}
+          />
         )}
       </ScreenContainer>
 

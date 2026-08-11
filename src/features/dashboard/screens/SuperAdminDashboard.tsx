@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
-import Svg, { Defs, RadialGradient, Stop, Rect, Circle, Path } from 'react-native-svg';
+import Svg, { Defs, RadialGradient, Stop, Rect, Circle } from 'react-native-svg';
 import { ScreenContainer } from '../../../components/common/ScreenContainer';
 import { Header } from '../../../components/common/Header';
 import { MetricCard } from '../../../components/cards/MetricCard';
@@ -12,7 +12,8 @@ import { ErrorState, EmptyState } from '../../../components/common/States';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useTheme } from '../../../theme/theme';
 import { useAuthStore } from '../../../store/authStore';
-import { IndianRupee, ShoppingBag, Box, Users, Store, TrendingUp } from 'lucide-react-native';
+import { useSocket } from '../../../api/SocketProvider';
+import { IndianRupee, ShoppingBag, Box, Users, Store, TrendingUp, Wifi, WifiOff } from 'lucide-react-native';
 import { Badge } from '../../../components/common/Badge';
 import { DashboardShortcutBar } from '../../../components/navigation/DashboardShortcutBar';
 import { ExecutiveProfileCard } from '../../../components/cards/ExecutiveProfileCard';
@@ -47,6 +48,7 @@ export const SuperAdminDashboard: React.FC = () => {
   const theme = useTheme();
   const { user } = useAuthStore();
   const { metrics, loading, refreshing, error, refresh } = useDashboardData();
+  const { isConnected } = useSocket();
 
   const bannerOpacity = useRef(new Animated.Value(0)).current;
   const bannerSlide = useRef(new Animated.Value(-12)).current;
@@ -103,16 +105,12 @@ export const SuperAdminDashboard: React.FC = () => {
         <MetricCard
           title="Total Revenue"
           value={`₹${(metrics?.totalRevenue || 0).toLocaleString('en-IN')}`}
-          change="+18.4%"
-          isPositive={true}
           icon={<IndianRupee size={18} color={theme.colors.primary} />}
           delay={0}
         />
         <MetricCard
           title="Total Orders"
           value={metrics?.totalOrders || 0}
-          change="+12.1%"
-          isPositive={true}
           icon={<ShoppingBag size={18} color={theme.colors.accent} />}
           delay={60}
         />
@@ -161,13 +159,22 @@ export const SuperAdminDashboard: React.FC = () => {
                 Revenue Analytics
               </Text>
               <Text style={[styles.chartSub, { color: theme.colors.textMuted }]}>
-                Live backend trend
+                {isConnected ? 'Live backend data' : 'Offline — last synced data'}
               </Text>
             </View>
-            <View style={[styles.liveDot, { backgroundColor: theme.colors.successLight }]}>
-              <View style={[styles.liveDotInner, { backgroundColor: theme.colors.success }]} />
-              <Text style={[styles.liveText, { color: theme.colors.success }]}>LIVE</Text>
-            </View>
+            {/* BUG-015 fix: LIVE indicator only shown when socket is actually connected */}
+            {isConnected && (
+              <View style={[styles.liveDot, { backgroundColor: theme.colors.successLight }]}>
+                <View style={[styles.liveDotInner, { backgroundColor: theme.colors.success }]} />
+                <Text style={[styles.liveText, { color: theme.colors.success }]}>LIVE</Text>
+              </View>
+            )}
+            {!isConnected && (
+              <View style={[styles.liveDot, { backgroundColor: theme.colors.errorLight || 'rgba(239,68,68,0.1)' }]}>
+                <View style={[styles.liveDotInner, { backgroundColor: theme.colors.error }]} />
+                <Text style={[styles.liveText, { color: theme.colors.textMuted }]}>OFFLINE</Text>
+              </View>
+            )}
           </View>
           <MiniChart
             height={96}

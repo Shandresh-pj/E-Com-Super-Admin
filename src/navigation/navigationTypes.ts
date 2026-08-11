@@ -17,9 +17,11 @@ export type MainTabParamList = {
   Orders: undefined;
   Branches: undefined;
   Employees: undefined;
+  Customers: undefined;
   Attendance: undefined;
   RoleAccess: undefined;
   Notifications: undefined;
   Profile: undefined;
   DynamicModule: { title: string; path: string; category?: string };
 };
+

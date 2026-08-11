@@ -28,7 +28,9 @@ import { ProductsScreen } from '../features/products/screens/ProductsScreen';
 import { OrdersScreen } from '../features/orders/screens/OrdersScreen';
 import { BranchesScreen } from '../features/branches/screens/BranchesScreen';
 import { EmployeesScreen } from '../features/employees/screens/EmployeesScreen';
+import { CustomersScreen } from '../features/customers/screens/CustomersScreen';
 import { AttendanceScreen } from '../features/attendance/screens/AttendanceScreen';
+
 import { RoleAccessScreen } from '../features/roleaccess/screens/RoleAccessScreen';
 import { NotificationsScreen } from '../features/notifications/screens/NotificationsScreen';
 import { ProfileScreen } from '../features/profile/screens/ProfileScreen';
@@ -43,11 +45,13 @@ import {
   ShoppingBag,
   Store,
   Users,
+  UserCheck,
   Bell,
   User,
   ShieldCheck,
-  UserCheck,
+  HeartHandshake,
 } from 'lucide-react-native';
+import { useNotificationCount } from '../hooks/useNotificationCount';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -60,6 +64,7 @@ const PRIMARY_TABS: (keyof MainTabParamList)[] = [
   'Profile',
 ];
 
+
 // ── Ultra-Responsive Tab Item with Spring Physics & Pill Capsule ────────────
 
 const ResponsiveTabItem: React.FC<{
@@ -69,8 +74,9 @@ const ResponsiveTabItem: React.FC<{
   onLongPress: () => void;
   icon: (color: string, size: number) => React.ReactNode;
   isSmallScreen: boolean;
-  hasNotificationBadge?: boolean;
-}> = ({ label, isFocused, onPress, onLongPress, icon, isSmallScreen, hasNotificationBadge }) => {
+  /** Number of unread notifications (0 means no badge) */
+  notificationCount?: number;
+}> = ({ label, isFocused, onPress, onLongPress, icon, isSmallScreen, notificationCount = 0 }) => {
   const theme = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const pillOpacity = useRef(new Animated.Value(isFocused ? 1 : 0)).current;
@@ -117,8 +123,12 @@ const ResponsiveTabItem: React.FC<{
       >
         <View style={styles.iconWrapper}>
           {icon(isFocused ? activeColor : inactiveColor, iconSize)}
-          {hasNotificationBadge && (
-            <View style={[styles.tabBadgeDot, { backgroundColor: theme.colors.primary }]} />
+          {notificationCount > 0 && (
+            <View style={[styles.tabBadgeDot, { backgroundColor: theme.colors.error }]}>
+              {notificationCount <= 9 && (
+                <Text style={styles.tabBadgeText}>{notificationCount}</Text>
+              )}
+            </View>
           )}
         </View>
 
@@ -153,6 +163,7 @@ const CustomFloatingTabBar: React.FC<BottomTabBarProps> = ({
 }) => {
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const { unreadCount } = useNotificationCount();
   const c = theme.colors;
 
   const isSmallScreen = width < 375;
@@ -223,7 +234,7 @@ const CustomFloatingTabBar: React.FC<BottomTabBarProps> = ({
               onLongPress={onLongPress}
               icon={renderIcon}
               isSmallScreen={isSmallScreen}
-              hasNotificationBadge={isAlertsTab}
+              notificationCount={isAlertsTab ? unreadCount : 0}
             />
           );
         })}
@@ -353,6 +364,16 @@ export const RoleNavigator: React.FC = () => {
         />
 
         <Tab.Screen
+          name="Customers"
+          component={CustomersScreen}
+          options={{
+            tabBarLabel: 'Customers',
+            tabBarIcon: ({ color, size }) => <HeartHandshake color={color} size={size} strokeWidth={2.2} />,
+          }}
+        />
+
+
+        <Tab.Screen
           name="Attendance"
           component={AttendanceScreen}
           options={{
@@ -440,11 +461,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -2,
     right: -3,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    minWidth: 14,
+    height: 14,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  tabBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    fontWeight: '800',
+    lineHeight: 12,
   },
   tabLabel: {
     marginTop: 2,

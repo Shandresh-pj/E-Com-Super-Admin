@@ -10,24 +10,58 @@ export interface Employee {
   mobilenumber?: string;
   userType?: string;
   role?: string;
+  role_id?: number | string;
   branch_id?: number | string | null;
   branch_name?: string;
   branch?: { id: number; name: string };
+  company_id?: number | string;
+  employee_code?: string;
+  department?: string;
+  designation?: string;
+  salary?: number | string;
+  working_hours?: number;
+  joining_date?: string;
   status?: boolean | string;
+  isActive?: boolean;
   shift?: string;
   image?: string;
   avatar?: string;
   created_at?: string;
+  updated_at?: string;
 }
+
+export interface CreateEmployeePayload {
+  name: string;
+  email: string;
+  password?: string;
+  userType: string;
+  phone?: string;
+  mobilenumber?: string;
+  company_id?: number | string;
+  branch_id?: number | string;
+  branchId?: number | string;
+  role_id?: number | string;
+  employee_code?: string;
+  department?: string;
+  designation?: string;
+  salary?: number | string;
+  working_hours?: number | string;
+  joining_date?: string;
+  isActive?: boolean;
+}
+
 
 export class EmployeeService {
   /**
    * Fetch all employees (GET /employees)
    */
-  static async getEmployees(search?: string): Promise<Employee[]> {
+  static async getEmployees(search?: string, params?: Record<string, any>): Promise<Employee[]> {
     try {
       const response = await axiosClient.get(ENDPOINTS.EMPLOYEES, {
-        params: search ? { search } : undefined,
+        params: {
+          ...(search ? { search } : {}),
+          ...params,
+        },
       });
       const normalized = normalizeApiResponse<Employee[]>(response.data);
       return Array.isArray(normalized.data) ? normalized.data : [];
@@ -50,46 +84,62 @@ export class EmployeeService {
   }
 
   /**
-   * Create a new employee / staff user (POST /auth/create-user)
-   * Backend uses unified user creation with role assignment.
+   * Create a new employee / staff member (POST /employees or POST /auth/create-user)
    */
-  static async createEmployee(data: {
-    name: string;
-    email: string;
-    password?: string;
-    userType: string;
-    phone?: string;
-    branchId?: number | string;
-  }): Promise<Employee> {
+  static async createEmployee(data: CreateEmployeePayload): Promise<Employee> {
     const payload = {
       name: data.name,
       email: data.email,
-      password: data.password || 'TemporaryPass@123',
-      userType: data.userType || 'EMPLOYEE',
-      mobilenumber: data.phone || '',
-      branchId: data.branchId || undefined,
+      password: data.password || 'Staff@12345',
+      userType: data.userType || 'Employee',
+      mobilenumber: data.mobilenumber || data.phone || '',
+      company_id: data.company_id,
+      branch_id: data.branch_id || data.branchId || undefined,
+      role_id: data.role_id,
+      employee_code: data.employee_code,
+      department: data.department,
+      designation: data.designation,
+      salary: data.salary != null ? parseFloat(String(data.salary)) : undefined,
+      working_hours: data.working_hours != null ? parseInt(String(data.working_hours), 10) : 8,
+      joining_date: data.joining_date || new Date().toISOString().split('T')[0],
     };
 
-    const response = await axiosClient.post(ENDPOINTS.AUTH_CREATE_USER, payload);
-    const normalized = normalizeApiResponse<Employee>(response.data);
-    if (!normalized.data && !normalized.success) {
-      throw new Error(normalized.message || 'Failed to create employee');
+    try {
+      const response = await axiosClient.post(ENDPOINTS.EMPLOYEES, payload);
+      const normalized = normalizeApiResponse<Employee>(response.data);
+      if (normalized.data) return normalized.data;
+    } catch {
+      // Fallback to unified auth user creation endpoint
+      const response = await axiosClient.post(ENDPOINTS.AUTH_CREATE_USER, payload);
+      const normalized = normalizeApiResponse<Employee>(response.data);
+      if (!normalized.data && !normalized.success) {
+        throw new Error(normalized.message || 'Failed to create employee');
+      }
+      return (normalized.data as Employee) || ({ id: Date.now(), ...payload } as Employee);
     }
-    return (normalized.data as Employee) || ({ id: Date.now(), ...payload } as Employee);
+    return ({ id: Date.now(), ...payload } as Employee);
   }
 
   /**
    * Update employee profile (PUT /employees/:id)
    */
   static async updateEmployee(id: number | string, data: Partial<Employee>): Promise<Employee> {
-    const response = await axiosClient.put(ENDPOINTS.EMPLOYEE_BY_ID(id), {
-      name: data.name,
-      phone: data.phone || data.mobilenumber,
-      mobilenumber: data.mobilenumber || data.phone,
-      branch_id: data.branch_id,
-      status: data.status,
-      shift: data.shift,
-    });
+    const payload: Record<string, any> = {};
+    if (data.name !== undefined) payload.name = data.name;
+    if (data.email !== undefined) payload.email = data.email;
+    if (data.mobilenumber !== undefined || data.phone !== undefined) payload.mobilenumber = data.mobilenumber || data.phone;
+    if (data.userType !== undefined) payload.userType = data.userType;
+    if (data.branch_id !== undefined) payload.branch_id = data.branch_id;
+    if (data.department !== undefined) payload.department = data.department;
+    if (data.designation !== undefined) payload.designation = data.designation;
+    if (data.employee_code !== undefined) payload.employee_code = data.employee_code;
+    if (data.salary !== undefined) payload.salary = data.salary != null ? parseFloat(String(data.salary)) : null;
+    if (data.working_hours !== undefined) payload.working_hours = data.working_hours != null ? parseInt(String(data.working_hours), 10) : null;
+    if (data.joining_date !== undefined) payload.joining_date = data.joining_date;
+    if (data.isActive !== undefined) payload.isActive = data.isActive;
+    if (data.status !== undefined) payload.status = data.status;
+
+    const response = await axiosClient.put(ENDPOINTS.EMPLOYEE_BY_ID(id), payload);
     const normalized = normalizeApiResponse<Employee>(response.data);
     return (normalized.data as Employee) || ({ id, ...data } as Employee);
   }
@@ -106,3 +156,4 @@ export class EmployeeService {
     }
   }
 }
+

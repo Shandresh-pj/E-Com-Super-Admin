@@ -19,21 +19,26 @@ import { Badge } from '../../../components/common/Badge';
 import { TextField } from '../../../components/inputs/TextField';
 import { PrimaryButton } from '../../../components/buttons/PrimaryButton';
 import { EmployeeService, Employee } from '../services/employeeService';
+import { BranchService, Branch } from '../../branches/services/branchService';
 import { DashboardSkeleton } from '../../../components/skeletons/SkeletonLoader';
 import { EmptyState, ErrorState } from '../../../components/common/States';
 import { useTheme } from '../../../theme/theme';
 import {
-  User,
   Users,
   Search,
   Plus,
   X,
-  Mail,
   Phone,
+  Mail,
   Store,
+  Briefcase,
   Shield,
+  Clock,
+  IndianRupee,
+  Calendar,
+  CheckCircle,
   PhoneCall,
-  MailCheck,
+  User,
 } from 'lucide-react-native';
 
 const ROLE_FILTERS = [
@@ -48,6 +53,7 @@ const ROLE_FILTERS = [
 export const EmployeesScreen: React.FC = () => {
   const theme = useTheme();
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [activeRole, setActiveRole] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -60,12 +66,18 @@ export const EmployeesScreen: React.FC = () => {
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Add Form Fields
+  // Add / Edit Form Fields
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
+  const [employeeCode, setEmployeeCode] = useState('');
+  const [department, setDepartment] = useState('');
+  const [designation, setDesignation] = useState('');
+  const [salary, setSalary] = useState('');
+  const [workingHours, setWorkingHours] = useState('');
   const [userType, setUserType] = useState('Employee');
+  const [selectedBranchId, setSelectedBranchId] = useState<number | string | undefined>(undefined);
 
   const fetchEmployees = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -73,8 +85,12 @@ export const EmployeesScreen: React.FC = () => {
     setError(null);
 
     try {
-      const data = await EmployeeService.getEmployees(searchQuery);
+      const [data, branchList] = await Promise.all([
+        EmployeeService.getEmployees(searchQuery),
+        BranchService.getBranches(),
+      ]);
       setEmployees(data);
+      setBranches(branchList);
     } catch (err: any) {
       setError(err.message || 'Failed to load employees');
     } finally {
@@ -97,7 +113,13 @@ export const EmployeesScreen: React.FC = () => {
     setEmail('');
     setPassword('Pass@1234');
     setPhone('');
+    setEmployeeCode(`EMP-${Math.floor(100 + Math.random() * 900)}`);
+    setDepartment('Operations');
+    setDesignation('Staff Associate');
+    setSalary('25000');
+    setWorkingHours('09:00 AM - 06:00 PM');
     setUserType('Employee');
+    setSelectedBranchId(branches.length > 0 ? branches[0].id : undefined);
     setAddModalVisible(true);
   };
 
@@ -115,34 +137,49 @@ export const EmployeesScreen: React.FC = () => {
         password,
         phone,
         userType,
+        employee_code: employeeCode,
+        department,
+        designation,
+        salary: salary ? parseFloat(salary) : undefined,
+        working_hours: workingHours,
+        branch_id: selectedBranchId,
+        isActive: true,
       });
       setEmployees((prev) => [created, ...prev]);
       Alert.alert('Success', `Employee ${name} registered successfully.`);
       setAddModalVisible(false);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to create employee');
+      Alert.alert('Error', err.message || 'Failed to register employee');
     } finally {
       setSubmitting(false);
     }
   };
 
   const filteredEmployees = employees.filter((emp) => {
-    const roleMatch =
-      activeRole === 'ALL' ||
-      (emp.userType || emp.role || '').toUpperCase() === activeRole.toUpperCase();
+    if (activeRole !== 'ALL') {
+      const roleStr = (emp.userType || emp.role || '').toUpperCase();
+      if (activeRole === 'ADMIN' && !roleStr.includes('ADMIN')) return false;
+      if (activeRole === 'BRANCH_MANAGER' && !roleStr.includes('MANAGER')) return false;
+      if (activeRole === 'SHOPKEEPER' && !roleStr.includes('SHOPKEEPER')) return false;
+      if (activeRole === 'DELIVERY_BOY' && !roleStr.includes('DELIVERY')) return false;
+      if (activeRole === 'EMPLOYEE' && roleStr !== 'EMPLOYEE' && roleStr !== 'STAFF') return false;
+    }
 
-    const searchMatch =
-      !searchQuery.trim() ||
-      (emp.name && emp.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (emp.email && emp.email.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    return roleMatch && searchMatch;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (emp.name && emp.name.toLowerCase().includes(q)) ||
+      (emp.email && emp.email.toLowerCase().includes(q)) ||
+      (emp.phone && emp.phone.toLowerCase().includes(q)) ||
+      (emp.employee_code && emp.employee_code.toLowerCase().includes(q)) ||
+      (emp.department && emp.department.toLowerCase().includes(q))
+    );
   });
 
   const handleDeleteEmployee = (emp: Employee) => {
     Alert.alert(
       'Remove Staff',
-      `Remove "${emp.name}" from the system? This action cannot be undone.`,
+      `Are you sure you want to remove staff member "${emp.name || emp.email}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -187,7 +224,7 @@ export const EmployeesScreen: React.FC = () => {
         <View style={[styles.searchBox, { backgroundColor: theme.isDark ? c.surfaceSecondary : '#F1F5F9', borderColor: c.border }]}>
           <Search size={18} color={c.textMuted} />
           <TextInput
-            placeholder="Search by name, email, or role..."
+            placeholder="Search by name, email, department, code..."
             placeholderTextColor={c.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -269,7 +306,7 @@ export const EmployeesScreen: React.FC = () => {
                         {emp.name || emp.email.split('@')[0]}
                       </Text>
                       <Text style={[styles.empEmail, { color: c.textMuted }]}>
-                        {emp.email}
+                        {emp.designation ? `${emp.designation} · ${emp.department || 'Operations'}` : emp.email}
                       </Text>
                     </View>
                   </View>
@@ -327,6 +364,36 @@ export const EmployeesScreen: React.FC = () => {
                     <Badge label={selectedEmp.userType || selectedEmp.role || 'Staff'} variant="primary" />
                   </View>
 
+                  {selectedEmp.employee_code && (
+                    <View style={styles.metaRow}>
+                      <Text style={[styles.metaLabel, { color: c.textMuted }]}>Staff ID Code:</Text>
+                      <Text style={[styles.metaVal, { color: c.textPrimary }]}>{selectedEmp.employee_code}</Text>
+                    </View>
+                  )}
+
+                  {selectedEmp.department && (
+                    <View style={styles.metaRow}>
+                      <Text style={[styles.metaLabel, { color: c.textMuted }]}>Department:</Text>
+                      <Text style={[styles.metaVal, { color: c.textPrimary }]}>{selectedEmp.department}</Text>
+                    </View>
+                  )}
+
+                  {selectedEmp.designation && (
+                    <View style={styles.metaRow}>
+                      <Text style={[styles.metaLabel, { color: c.textMuted }]}>Designation:</Text>
+                      <Text style={[styles.metaVal, { color: c.textPrimary }]}>{selectedEmp.designation}</Text>
+                    </View>
+                  )}
+
+                  {selectedEmp.salary && (
+                    <View style={styles.metaRow}>
+                      <Text style={[styles.metaLabel, { color: c.textMuted }]}>Monthly Compensation:</Text>
+                      <Text style={[styles.metaVal, { color: c.primary }]}>
+                        ₹{parseFloat(String(selectedEmp.salary)).toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  )}
+
                   {selectedEmp.phone && (
                     <View style={styles.metaRow}>
                       <Text style={[styles.metaLabel, { color: c.textMuted }]}>Phone Number:</Text>
@@ -352,7 +419,7 @@ export const EmployeesScreen: React.FC = () => {
                       style={[styles.actionGridBtn, { backgroundColor: c.primaryLight }]}
                     >
                       <PhoneCall size={16} color={c.primary} />
-                      <Text style={[styles.actionGridText, { color: c.primary }]}>Call Staff</Text>
+                      <Text style={[styles.actionGridText, { color: c.primary }]}>Call</Text>
                     </TouchableOpacity>
                   ) : null}
 
@@ -361,8 +428,8 @@ export const EmployeesScreen: React.FC = () => {
                       onPress={() => Linking.openURL(`mailto:${selectedEmp.email}`)}
                       style={[styles.actionGridBtn, { backgroundColor: c.accentLight }]}
                     >
-                      <MailCheck size={16} color={c.accent} />
-                      <Text style={[styles.actionGridText, { color: c.accent }]}>Send Email</Text>
+                      <Mail size={16} color={c.accent} />
+                      <Text style={[styles.actionGridText, { color: c.accent }]}>Email</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -381,7 +448,7 @@ export const EmployeesScreen: React.FC = () => {
         </View>
       </Modal>
 
-      {/* ── Add Employee Modal ──────────────────────────────────────── */}
+      {/* ── Add Staff Modal ─────────────────────────────────────────── */}
       <Modal
         visible={addModalVisible}
         animationType="slide"
@@ -398,7 +465,7 @@ export const EmployeesScreen: React.FC = () => {
                 <View>
                   <Text style={[theme.typography.h3, { color: c.textPrimary }]}>Onboard New Staff</Text>
                   <Text style={[theme.typography.caption, { color: c.textMuted }]}>
-                    Create account credentials & assign role
+                    Create account credentials & assign HR profile
                   </Text>
                 </View>
                 <TouchableOpacity onPress={() => setAddModalVisible(false)} style={styles.closeBtn}>
@@ -415,8 +482,44 @@ export const EmployeesScreen: React.FC = () => {
                 <TextField label="Email Address *" placeholder="e.g. ramesh@svk.com" value={email} onChangeText={setEmail} keyboardType="email-address" />
                 <TextField label="Initial Password" placeholder="••••••••" value={password} onChangeText={setPassword} isPassword />
                 <TextField label="Contact Phone" placeholder="e.g. +91 98765 43210" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+                <TextField label="Staff ID Code" placeholder="e.g. EMP-101" value={employeeCode} onChangeText={setEmployeeCode} />
+                <TextField label="Department" placeholder="e.g. Logistics, Sales, Operations" value={department} onChangeText={setDepartment} />
+                <TextField label="Designation" placeholder="e.g. Store Manager, Cashier" value={designation} onChangeText={setDesignation} />
+                <TextField label="Monthly Salary (₹)" placeholder="e.g. 30000" value={salary} onChangeText={setSalary} keyboardType="numeric" />
+                <TextField label="Working Hours" placeholder="e.g. 09:00 AM - 06:00 PM" value={workingHours} onChangeText={setWorkingHours} />
 
-                <Text style={[styles.rolePickerLabel, { color: c.textSecondary }]}>Role Assignment:</Text>
+                {/* Branch Selection */}
+                {branches.length > 0 && (
+                  <>
+                    <Text style={[styles.rolePickerLabel, { color: c.textSecondary }]}>Assigned Branch:</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        {branches.map((b) => {
+                          const isSelected = selectedBranchId === b.id;
+                          return (
+                            <TouchableOpacity
+                              key={b.id}
+                              onPress={() => setSelectedBranchId(b.id)}
+                              style={[
+                                styles.roleChip,
+                                {
+                                  backgroundColor: isSelected ? c.primary : c.surfaceSecondary,
+                                  borderColor: isSelected ? c.primary : c.border,
+                                },
+                              ]}
+                            >
+                              <Text style={[styles.roleChipText, { color: isSelected ? '#FFFFFF' : c.textSecondary }]}>
+                                {b.name}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+                  </>
+                )}
+
+                <Text style={[styles.rolePickerLabel, { color: c.textSecondary }]}>Role Clearance:</Text>
                 <View style={styles.rolesGrid}>
                   {['Admin', 'Branch_Manager', 'Shopkeeper', 'Delivery_Boy', 'Employee'].map((r) => {
                     const isSelected = userType === r;

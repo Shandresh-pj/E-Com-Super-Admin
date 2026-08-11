@@ -129,7 +129,9 @@ export const NotificationsScreen: React.FC = () => {
         priority: 'HIGH',
       });
 
-      setNotifications((prev) => [newNotif, ...prev]);
+      if (newNotif) {
+        setNotifications((prev) => [newNotif, ...prev]);
+      }
       Alert.alert('Broadcast Sent', 'Notification has been dispatched to all staff and outlets.');
       setBroadcastModalVisible(false);
       setBroadcastTitle('');

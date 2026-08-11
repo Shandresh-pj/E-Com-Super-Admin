@@ -41,20 +41,28 @@ export interface CreateOrderPayload {
   company_id?: number;
   branch_id?: number | null;
   customer_id?: number | null;
+  customer_name?: string;
+  customer_phone?: string;
+  customer_email?: string;
+  shipping_address?: string;
+  total_amount?: number | string;
+  payment_method?: string;
+  payment_status?: string;
+  status?: string;
   requested_invoice_no?: string;
   payment?: {
     method: 'CASH' | 'CARD' | 'UPI' | 'RAZORPAY' | 'NETBANKING' | string;
     status?: 'PENDING' | 'PAID' | 'FAILED' | string;
     transaction_id?: string;
   };
-  items: {
+  items?: {
     product_id: number | string;
     quantity: number;
     price: number;
   }[];
   notes?: string;
-  shipping_address?: string;
 }
+
 
 /**
  * Deeply maps and normalizes raw backend order payloads (supporting camelCase, snake_case, nested structures).

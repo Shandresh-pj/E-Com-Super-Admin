@@ -223,9 +223,13 @@ export const SidebarDrawer: React.FC = () => {
           case '/employees':
             navigation.navigate('Employees');
             break;
+          case '/customers':
+            navigation.navigate('Customers');
+            break;
           case '/attendance':
             navigation.navigate('Attendance');
             break;
+
           case '/role-access':
             navigation.navigate('RoleAccess');
             break;

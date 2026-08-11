@@ -29,7 +29,9 @@ export const BACKEND_MENUS_CATALOG: MenuItem[] = [
   { id: 18, name: 'Central Stocks', path: '/stocks', icon: 'database', isActive: true, category: 'Commerce & Inventory', permissions: [] },
   { id: 17, name: 'Branch Stocks', path: '/branch-stocks', icon: 'git-merge', isActive: true, category: 'Commerce & Inventory', permissions: [] },
   { id: 10, name: 'Orders Register', path: '/orders', icon: 'shopping-cart', isActive: true, category: 'Commerce & Inventory', permissions: [] },
+  { id: 14, name: 'Customer Directory', path: '/customers', icon: 'users', isActive: true, category: 'Commerce & Inventory', permissions: [] },
   { id: 35, name: 'POS Billing Machine', path: '/pos-billing', icon: 'receipt-2', isActive: true, category: 'Commerce & Inventory', permissions: [] },
+
   { id: 24, name: 'Invoice Generator', path: '/invoices', icon: 'file-text', isActive: true, category: 'Commerce & Inventory', permissions: [] },
   { id: 11, name: 'Discount Coupons', path: '/coupons', icon: 'ticket', isActive: true, category: 'Commerce & Inventory', permissions: [] },
   { id: 31, name: 'Standard Checkout', path: '/checkout', icon: 'credit-card', isActive: true, category: 'Commerce & Inventory', permissions: [] },

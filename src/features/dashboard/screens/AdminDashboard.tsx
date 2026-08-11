@@ -11,6 +11,7 @@ import { ErrorState, EmptyState } from '../../../components/common/States';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useTheme } from '../../../theme/theme';
 import { useAuthStore } from '../../../store/authStore';
+import { useSocket } from '../../../api/SocketProvider';
 import { IndianRupee, ShoppingBag, Box, Users, Store, Layers } from 'lucide-react-native';
 import { Badge } from '../../../components/common/Badge';
 import { ExecutiveProfileCard } from '../../../components/cards/ExecutiveProfileCard';
@@ -19,6 +20,7 @@ export const AdminDashboard: React.FC = () => {
   const theme = useTheme();
   const user = useAuthStore((state) => state.user);
   const { metrics, loading, refreshing, error, refresh } = useDashboardData();
+  const { isConnected } = useSocket();
 
   if (loading && !refreshing) {
     return (
@@ -78,7 +80,7 @@ export const AdminDashboard: React.FC = () => {
           <Text style={[theme.typography.subtitle1, { color: theme.colors.textPrimary }]}>
             Sales Overview
           </Text>
-          <Badge label="Live Data" variant="success" size="sm" />
+          <Badge label={isConnected ? 'Live Data' : 'Offline'} variant={isConnected ? 'success' : 'error'} size="sm" />
         </View>
         <MiniChart
           height={80}

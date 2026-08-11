@@ -91,6 +91,19 @@ export class NotificationService {
   }
 
   /**
+   * Get the count of unread notifications.
+   * Used for the notification badge in the tab bar.
+   */
+  static async getUnreadCount(): Promise<number> {
+    try {
+      const notifications = await this.getNotifications();
+      return notifications.filter((n) => !n.is_read).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
    * Mark a single notification as read (PUT /notifications/:id/read)
    */
   static async markAsRead(id: string | number): Promise<void> {
@@ -109,34 +122,31 @@ export class NotificationService {
   }
 
   /**
-   * Send a broadcast alert/notification (POST /alerts/send)
-   * Used by Super Admin to send system-wide messages.
+   * Send a notification/alert via POST /notifications
+   * NOTE: The backend /alerts endpoint does not exist.
+   * This posts to /notifications — verify backend supports POST if needed.
    */
   static async sendBroadcast(payload: {
     title: string;
     message: string;
     category: NotificationCategory;
     priority?: 'HIGH' | 'MEDIUM' | 'LOW';
-  }): Promise<NotificationItem> {
-    const response = await axiosClient.post(ENDPOINTS.ALERTS_SEND, {
-      title: payload.title,
-      message: payload.message,
-      type: payload.category,
-      priority: payload.priority || 'HIGH',
-    });
-    const normalized = normalizeApiResponse<NotificationItem>(response.data);
-    if (normalized.data) return normalized.data;
-    // Return a local representation if backend doesn't return the created object
-    return {
-      id: `broadcast_${Date.now()}`,
-      title: payload.title,
-      message: payload.message,
-      category: payload.category,
-      is_read: false,
-      created_at: new Date().toISOString(),
-      priority: payload.priority || 'HIGH',
-    };
+  }): Promise<NotificationItem | null> {
+    try {
+      const response = await axiosClient.post(ENDPOINTS.NOTIFICATIONS, {
+        title: payload.title,
+        message: payload.message,
+        type: payload.category,
+        priority: payload.priority || 'HIGH',
+      });
+      const normalized = normalizeApiResponse<NotificationItem>(response.data);
+      return normalized.data ?? null;
+    } catch (e) {
+      console.warn('[NotificationService] sendBroadcast failed:', e);
+      return null;
+    }
   }
+
 
   /**
    * Delete a notification (DELETE /notifications/:id)

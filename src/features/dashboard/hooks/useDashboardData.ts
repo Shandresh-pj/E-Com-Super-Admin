@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { DashboardService, DashboardMetrics } from '../services/dashboardService';
+import { SocketService } from '../../../api/socketService';
 
 export const useDashboardData = () => {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
@@ -28,6 +29,25 @@ export const useDashboardData = () => {
 
   useEffect(() => {
     loadData();
+
+    // Subscribe to live backend WebSocket events for instantaneous re-render
+    const unsubProduct = SocketService.on('product-updated', () => loadData(true));
+    const unsubProductCreated = SocketService.on('product-created', () => loadData(true));
+    const unsubProductDeleted = SocketService.on('product-deleted', () => loadData(true));
+    const unsubOrder = SocketService.on('order-created', () => loadData(true));
+    const unsubOrderCreated = SocketService.on('ORDER_CREATED', () => loadData(true));
+    const unsubStock = SocketService.on('stock.changed', () => loadData(true));
+    const unsubMetrics = SocketService.on('dashboard.metrics.update', () => loadData(true));
+
+    return () => {
+      unsubProduct();
+      unsubProductCreated();
+      unsubProductDeleted();
+      unsubOrder();
+      unsubOrderCreated();
+      unsubStock();
+      unsubMetrics();
+    };
   }, [loadData]);
 
   return {
@@ -38,3 +58,4 @@ export const useDashboardData = () => {
     refresh: () => loadData(true),
   };
 };
+
