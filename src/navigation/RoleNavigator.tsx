@@ -25,11 +25,50 @@ import { DeliveryBoyDashboard } from '../features/dashboard/screens/DeliveryBoyD
 import { UnsupportedRoleScreen } from '../features/dashboard/screens/UnsupportedRoleScreen';
 
 import { ProductsScreen } from '../features/products/screens/ProductsScreen';
+import { CategoriesScreen } from '../features/products/screens/CategoriesScreen';
+import { CouponsScreen } from '../features/products/screens/CouponsScreen';
 import { OrdersScreen } from '../features/orders/screens/OrdersScreen';
 import { BranchesScreen } from '../features/branches/screens/BranchesScreen';
 import { EmployeesScreen } from '../features/employees/screens/EmployeesScreen';
 import { CustomersScreen } from '../features/customers/screens/CustomersScreen';
 import { AttendanceScreen } from '../features/attendance/screens/AttendanceScreen';
+import { PayrollScreen } from '../features/employees/screens/PayrollScreen';
+import { LeaveScreen } from '../features/employees/screens/LeaveScreen';
+import { ShiftsScreen } from '../features/workforce/screens/ShiftsScreen';
+import { StocksScreen } from '../features/inventory/screens/StocksScreen';
+import { DeliveryTrackingScreen } from '../features/delivery/screens/DeliveryTrackingScreen';
+import { PaymentsScreen } from '../features/finance/screens/PaymentsScreen';
+import { ProfitLossScreen } from '../features/finance/screens/ProfitLossScreen';
+import { InvoicesScreen } from '../features/finance/screens/InvoicesScreen';
+import { AuditLogsScreen } from '../features/admin/screens/AuditLogsScreen';
+import { ApprovalsScreen } from '../features/admin/screens/ApprovalsScreen';
+import { POSBillingScreen } from '../features/pos/screens/POSBillingScreen';
+import { SubscriptionScreen } from '../features/subscription/screens/SubscriptionScreen';
+import { CRMContactsScreen } from '../features/crm/screens/CRMContactsScreen';
+import { WorkforceConsoleScreen } from '../features/workforce/screens/WorkforceConsoleScreen';
+import { BreakPoliciesScreen } from '../features/workforce/screens/BreakPoliciesScreen';
+import { GeofencingScreen } from '../features/workforce/screens/GeofencingScreen';
+import { WorkforceRequestsScreen } from '../features/workforce/screens/WorkforceRequestsScreen';
+import { SecureChatScreen } from '../features/communication/screens/SecureChatScreen';
+import { TeamMeetingsScreen } from '../features/communication/screens/TeamMeetingsScreen';
+import { MobilityCockpitScreen } from '../features/mobility/screens/MobilityCockpitScreen';
+import { ProductAttributesScreen } from '../features/products/screens/ProductAttributesScreen';
+import { AttributeValuesScreen } from '../features/products/screens/AttributeValuesScreen';
+import { StatusMasterScreen } from '../features/admin/screens/StatusMasterScreen';
+import { MenuBarScreen } from '../features/admin/screens/MenuBarScreen';
+import { BiometricsScreen } from '../features/workforce/screens/BiometricsScreen';
+import { HardwareDevicesScreen } from '../features/admin/screens/HardwareDevicesScreen';
+import { TranslationKeysScreen } from '../features/admin/screens/TranslationKeysScreen';
+import { CompanyCalendarScreen } from '../features/admin/screens/CompanyCalendarScreen';
+import { EmployeeDocumentsScreen } from '../features/employees/screens/EmployeeDocumentsScreen';
+import { VehicleNearbyScreen } from '../features/mobility/screens/VehicleNearbyScreen';
+import { MobilityBookingsScreen } from '../features/mobility/screens/MobilityBookingsScreen';
+import { CarRentalsScreen } from '../features/mobility/screens/CarRentalsScreen';
+import { ParcelLogisticsScreen } from '../features/mobility/screens/ParcelLogisticsScreen';
+import { FleetAssetsScreen } from '../features/mobility/screens/FleetAssetsScreen';
+import { TransitRoutesScreen } from '../features/mobility/screens/TransitRoutesScreen';
+import { GPSTelemetryScreen } from '../features/mobility/screens/GPSTelemetryScreen';
+import { VehicleKYCScreen } from '../features/mobility/screens/VehicleKYCScreen';
 
 import { RoleAccessScreen } from '../features/roleaccess/screens/RoleAccessScreen';
 import { NotificationsScreen } from '../features/notifications/screens/NotificationsScreen';
@@ -391,6 +430,78 @@ export const RoleNavigator: React.FC = () => {
           }}
         />
 
+        {/* ── Commerce & Products ─────────────────────────────── */}
+        <Tab.Screen name="Categories" component={CategoriesScreen} options={{ tabBarLabel: 'Categories', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="Coupons" component={CouponsScreen} options={{ tabBarLabel: 'Coupons', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Inventory & Stock ───────────────────────────────── */}
+        <Tab.Screen name="Stocks" component={StocksScreen} options={{ tabBarLabel: 'Stocks', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Workforce & HR ──────────────────────────────────── */}
+        <Tab.Screen name="Payroll" component={PayrollScreen} options={{ tabBarLabel: 'Payroll', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="Leave" component={LeaveScreen} options={{ tabBarLabel: 'Leave', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="Shifts" component={ShiftsScreen} options={{ tabBarLabel: 'Shifts', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Fulfilment & Finance ────────────────────────────── */}
+        <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarLabel: 'Delivery', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="Payments" component={PaymentsScreen} options={{ tabBarLabel: 'Payments', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="ProfitLoss" component={ProfitLossScreen} options={{ tabBarLabel: 'P&L', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Admin & System ──────────────────────────────────── */}
+        <Tab.Screen name="AuditLogs" component={AuditLogsScreen} options={{ tabBarLabel: 'Audit', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="Approvals" component={ApprovalsScreen} options={{ tabBarLabel: 'Approvals', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── POS Billing ─────────────────────────────────────── */}
+        <Tab.Screen name="POSBilling" component={POSBillingScreen} options={{ tabBarLabel: 'POS', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Invoices ────────────────────────────────────────── */}
+        <Tab.Screen name="Invoices" component={InvoicesScreen} options={{ tabBarLabel: 'Invoices', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Subscription ────────────────────────────────────── */}
+        <Tab.Screen name="Subscription" component={SubscriptionScreen} options={{ tabBarLabel: 'Plans', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── CRM Contacts ────────────────────────────────────── */}
+        <Tab.Screen name="CRMContacts" component={CRMContactsScreen} options={{ tabBarLabel: 'CRM', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Workforce Extended ──────────────────────────────── */}
+        <Tab.Screen name="WorkforceConsole" component={WorkforceConsoleScreen} options={{ tabBarLabel: 'Workforce', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="BreakPolicies" component={BreakPoliciesScreen} options={{ tabBarLabel: 'Breaks', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="Geofencing" component={GeofencingScreen} options={{ tabBarLabel: 'Geofencing', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="WorkforceRequests" component={WorkforceRequestsScreen} options={{ tabBarLabel: 'WF Requests', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Communication ────────────────────────────────────── */}
+        <Tab.Screen name="SecureChat" component={SecureChatScreen} options={{ tabBarLabel: 'Chat', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="TeamMeetings" component={TeamMeetingsScreen} options={{ tabBarLabel: 'Meetings', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Mobility Platform ────────────────────────────────── */}
+        <Tab.Screen name="MobilityCockpit" component={MobilityCockpitScreen} options={{ tabBarLabel: 'Mobility', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Products Extended ───────────────────────────────── */}
+        <Tab.Screen name="ProductAttributes" component={ProductAttributesScreen} options={{ tabBarLabel: 'Attributes', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="AttributeValues" component={AttributeValuesScreen} options={{ tabBarLabel: 'Values', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Admin & System Masters ──────────────────────────── */}
+        <Tab.Screen name="StatusMaster" component={StatusMasterScreen} options={{ tabBarLabel: 'Status Master', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="MenuBar" component={MenuBarScreen} options={{ tabBarLabel: 'Menu Settings', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="HardwareDevices" component={HardwareDevicesScreen} options={{ tabBarLabel: 'Hardware', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="TranslationKeys" component={TranslationKeysScreen} options={{ tabBarLabel: 'Languages', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="CompanyCalendar" component={CompanyCalendarScreen} options={{ tabBarLabel: 'Calendar', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Workforce Extended ──────────────────────────────── */}
+        <Tab.Screen name="Biometrics" component={BiometricsScreen} options={{ tabBarLabel: 'Biometrics', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="EmployeeDocuments" component={EmployeeDocumentsScreen} options={{ tabBarLabel: 'Emp Docs', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Mobility Platform Extended ──────────────────────── */}
+        <Tab.Screen name="VehicleNearby" component={VehicleNearbyScreen} options={{ tabBarLabel: 'Nearby', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="MobilityBookings" component={MobilityBookingsScreen} options={{ tabBarLabel: 'Bookings', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="CarRentals" component={CarRentalsScreen} options={{ tabBarLabel: 'Rentals', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="ParcelLogistics" component={ParcelLogisticsScreen} options={{ tabBarLabel: 'Parcels', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="FleetAssets" component={FleetAssetsScreen} options={{ tabBarLabel: 'Fleet', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="TransitRoutes" component={TransitRoutesScreen} options={{ tabBarLabel: 'Transit', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="GPSTelemetry" component={GPSTelemetryScreen} options={{ tabBarLabel: 'Telemetry', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+        <Tab.Screen name="VehicleKYC" component={VehicleKYCScreen} options={{ tabBarLabel: 'Vehicle KYC', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} strokeWidth={2.2} /> }} />
+
+        {/* ── Dynamic Fallback ────────────────────────────────── */}
         <Tab.Screen
           name="DynamicModule"
           component={DynamicModuleScreen}

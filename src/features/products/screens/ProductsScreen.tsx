@@ -20,11 +20,13 @@ import { ProductCard } from '../../../components/cards/ProductCard';
 import { TextField } from '../../../components/inputs/TextField';
 import { PrimaryButton } from '../../../components/buttons/PrimaryButton';
 import { Badge } from '../../../components/common/Badge';
+import { Card } from '../../../components/common/Card';
 import { ProductService, Product, Category } from '../services/productService';
 import { DashboardSkeleton } from '../../../components/skeletons/SkeletonLoader';
 import { EmptyState, ErrorState } from '../../../components/common/States';
 import { useTheme } from '../../../theme/theme';
 import { getApiBaseUrl } from '../../../config/environment';
+import { resolveMediaUrl } from '../../../utils/mediaUrl';
 import {
   Plus,
   Search,
@@ -76,6 +78,12 @@ export const ProductsScreen: React.FC = () => {
   const [additionalImages, setAdditionalImages] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [taxRate, setTaxRate] = useState('18');
+  const [mediaInputMode, setMediaInputMode] = useState<'URL' | 'UPLOAD'>('URL');
+
+  // Cross-Platform Media Picker Modal State (Android & iOS)
+  const [mediaPickerVisible, setMediaPickerVisible] = useState(false);
+  const [uploadTarget, setUploadTarget] = useState<'PRIMARY' | 'GALLERY' | 'VIDEO'>('PRIMARY');
+  const [pickerInputText, setPickerInputText] = useState('');
 
   // Active Gallery Image Index
   const [activeImgIndex, setActiveImgIndex] = useState(0);
@@ -195,7 +203,58 @@ export const ProductsScreen: React.FC = () => {
         imgArray.unshift(imageUrl);
       }
 
-      const payload: Partial<Product> = {
+      const hasLocalMedia = (uri?: string) => uri && (uri.startsWith('file://') || uri.startsWith('content://') || uri.startsWith('data:'));
+
+      let formDataPayload: FormData | undefined = undefined;
+
+      if (hasLocalMedia(imageUrl) || imgArray.some(hasLocalMedia) || hasLocalMedia(videoUrl)) {
+        formDataPayload = new FormData();
+        formDataPayload.append('name', name);
+        formDataPayload.append('description', description);
+        formDataPayload.append('price', String(parseFloat(price)));
+        if (mrp) formDataPayload.append('compare_at_price', String(parseFloat(mrp)));
+        if (purchaseCost) formDataPayload.append('purchase_cost', String(parseFloat(purchaseCost)));
+        if (stock) formDataPayload.append('stock', stock);
+        if (sku) formDataPayload.append('sku', sku);
+        if (barcode) formDataPayload.append('barcode', barcode);
+        if (category) formDataPayload.append('category', category);
+        if (brand) formDataPayload.append('brand', brand);
+        if (unit) formDataPayload.append('unit', unit);
+        if (taxRate) formDataPayload.append('tax_rate', taxRate);
+
+        if (imageUrl) {
+          if (hasLocalMedia(imageUrl)) {
+            const filename = imageUrl.split('/').pop() || 'primary_cover.jpg';
+            const type = imageUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+            formDataPayload.append('image', { uri: imageUrl, name: filename, type } as any);
+          } else {
+            formDataPayload.append('image_url', imageUrl);
+          }
+        }
+
+        if (imgArray.length > 0) {
+          imgArray.forEach((imgUri, i) => {
+            if (hasLocalMedia(imgUri)) {
+              const fname = imgUri.split('/').pop() || `gallery_${i}.jpg`;
+              const ftype = imgUri.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+              formDataPayload!.append('images', { uri: imgUri, name: fname, type: ftype } as any);
+            } else {
+              formDataPayload!.append('additional_images', imgUri);
+            }
+          });
+        }
+
+        if (videoUrl) {
+          if (hasLocalMedia(videoUrl)) {
+            const vname = videoUrl.split('/').pop() || 'demo_video.mp4';
+            formDataPayload.append('video', { uri: videoUrl, name: vname, type: 'video/mp4' } as any);
+          } else {
+            formDataPayload.append('video_url', videoUrl);
+          }
+        }
+      }
+
+      const jsonPayload: Partial<Product> = {
         name,
         description,
         price: parseFloat(price),
@@ -218,11 +277,11 @@ export const ProductsScreen: React.FC = () => {
       };
 
       if (formMode === 'add') {
-        const created = await ProductService.createProduct(payload);
+        const created = await ProductService.createProduct(jsonPayload, formDataPayload);
         setProducts((prev) => [created, ...prev]);
         Alert.alert('Success', 'Product created and listed successfully.');
       } else if (selectedProduct) {
-        const updated = await ProductService.updateProduct(selectedProduct.id, payload);
+        const updated = await ProductService.updateProduct(selectedProduct.id, jsonPayload, formDataPayload);
         setProducts((prev) => prev.map((p) => (p.id === selectedProduct.id ? updated : p)));
         Alert.alert('Success', 'Product updated successfully.');
       }
@@ -648,30 +707,203 @@ export const ProductsScreen: React.FC = () => {
                   </View>
                 )}
 
-                {/* 4. Media & Video Tab */}
+                {/* 4. Media & Video Tab (3 Separate Dedicated Upload & URL Sections) */}
                 {formTab === 'media' && (
                   <View style={styles.tabContent}>
-                    <Text style={[theme.typography.caption, { color: c.textSecondary, fontWeight: '700' }]}>
-                      Product Images & Photos
-                    </Text>
+                    {/* Media Input Format Selector */}
+                    <View style={styles.mediaFormatSelectorBar}>
+                      <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Product Media Manager</Text>
+                      <View style={styles.formatChipRow}>
+                        <TouchableOpacity
+                          onPress={() => setMediaInputMode('URL')}
+                          style={[
+                            styles.formatChip,
+                            {
+                              backgroundColor: mediaInputMode === 'URL' ? c.primary : theme.isDark ? c.surfaceSecondary : '#F1F5F9',
+                              borderColor: mediaInputMode === 'URL' ? c.primary : c.border,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.formatChipText, { color: mediaInputMode === 'URL' ? '#FFF' : c.textSecondary }]}>🌐 URL Mode</Text>
+                        </TouchableOpacity>
 
-                    {imageUrl ? (
-                      <View style={styles.previewBox}>
-                        <Image source={{ uri: imageUrl }} style={styles.previewThumb} />
-                        <Text style={[styles.previewText, { color: c.textMuted }]}>Primary Image Live Preview</Text>
+                        <TouchableOpacity
+                          onPress={() => setMediaInputMode('UPLOAD')}
+                          style={[
+                            styles.formatChip,
+                            {
+                              backgroundColor: mediaInputMode === 'UPLOAD' ? c.primary : theme.isDark ? c.surfaceSecondary : '#F1F5F9',
+                              borderColor: mediaInputMode === 'UPLOAD' ? c.primary : c.border,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.formatChipText, { color: mediaInputMode === 'UPLOAD' ? '#FFF' : c.textSecondary }]}>📁 File Upload Mode</Text>
+                        </TouchableOpacity>
                       </View>
-                    ) : null}
+                    </View>
 
-                    <TextField label="Primary Image URL" placeholder="https://example.com/product-photo.jpg" value={imageUrl} onChangeText={setImageUrl} />
-                    <TextField label="Additional Gallery Photos (Comma Separated URLs)" placeholder="https://cdn.example.com/img1.jpg, https://cdn.example.com/img2.jpg" value={additionalImages} onChangeText={setAdditionalImages} multiline />
+                    {/* ── SECTION 1: PRIMARY COVER IMAGE ──────────────────────────── */}
+                    <Card style={styles.mediaSectionCard}>
+                      <View style={styles.sectionHeaderRow}>
+                        <ImageIcon size={18} color={c.primary} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.mediaSectionHeading, { color: c.textPrimary }]}>1. Primary Cover Image</Text>
+                          <Text style={[styles.mediaSectionSub, { color: c.textMuted }]}>Main photo displayed on product listings & cards</Text>
+                        </View>
+                        {imageUrl ? <Badge label="MAIN SET" variant="success" size="sm" /> : null}
+                      </View>
 
-                    <View style={[styles.divider, { backgroundColor: c.border }]} />
+                      {imageUrl ? (
+                        <View style={[styles.primaryPreviewBox, { backgroundColor: theme.isDark ? c.surfaceSecondary : '#F8FAFC', borderColor: c.border }]}>
+                          <Image source={{ uri: resolveMediaUrl(imageUrl) || imageUrl }} style={styles.primaryPreviewImg} resizeMode="contain" />
+                          <TouchableOpacity onPress={() => setImageUrl('')} style={styles.clearMediaBtn}>
+                            <X size={12} color="#FFF" />
+                            <Text style={styles.clearMediaBtnText}>Clear Cover</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
 
-                    <Text style={[theme.typography.caption, { color: c.textSecondary, fontWeight: '700' }]}>
-                      Product Demonstration Video
-                    </Text>
+                      {mediaInputMode === 'UPLOAD' ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            setUploadTarget('PRIMARY');
+                            setPickerInputText(imageUrl || '');
+                            setMediaPickerVisible(true);
+                          }}
+                          style={[styles.separateUploadBtn, { backgroundColor: c.primaryLight, borderColor: c.primary }]}
+                          activeOpacity={0.8}
+                        >
+                          <ImageIcon size={16} color={c.primary} />
+                          <Text style={[styles.separateUploadBtnText, { color: c.primary }]}>📁 Upload Primary Cover Image File</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TextField
+                          label="Primary Image URL"
+                          placeholder="https://example.com/product-photo.jpg or /uploads/images/abc.jpg"
+                          value={imageUrl}
+                          onChangeText={setImageUrl}
+                        />
+                      )}
+                    </Card>
 
-                    <TextField label="Video Demonstration URL / Stream Link" placeholder="https://example.com/demo.mp4 or YouTube / Vimeo link" value={videoUrl} onChangeText={setVideoUrl} />
+                    {/* ── SECTION 2: ADDITIONAL GALLERY IMAGES ───────────────────── */}
+                    <Card style={styles.mediaSectionCard}>
+                      <View style={styles.sectionHeaderRow}>
+                        <Layers size={18} color={c.accent} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.mediaSectionHeading, { color: c.textPrimary }]}>2. Additional Gallery Images</Text>
+                          <Text style={[styles.mediaSectionSub, { color: c.textMuted }]}>Extra detail photos, packaging & alternate angles</Text>
+                        </View>
+                      </View>
+
+                      {/* Gallery Photo Thumbnails Grid */}
+                      {additionalImages ? (
+                        <View style={styles.galleryThumbGrid}>
+                          {additionalImages.split(',').map((s) => s.trim()).filter(Boolean).map((uri, idx) => (
+                            <View key={idx} style={[styles.galleryThumbCard, { borderColor: c.border }]}>
+                              <Image source={{ uri: resolveMediaUrl(uri) || uri }} style={styles.galleryThumbImg} resizeMode="cover" />
+                              <TouchableOpacity
+                                onPress={() => {
+                                  const list = additionalImages.split(',').map((s) => s.trim()).filter(Boolean);
+                                  list.splice(idx, 1);
+                                  setAdditionalImages(list.join(', '));
+                                }}
+                                style={styles.removeGalleryItemBtn}
+                              >
+                                <X size={12} color="#FFF" />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  // Set this gallery photo as main cover
+                                  const list = additionalImages.split(',').map((s) => s.trim()).filter(Boolean);
+                                  const oldMain = imageUrl;
+                                  setImageUrl(uri);
+                                  list.splice(idx, 1);
+                                  if (oldMain) list.push(oldMain);
+                                  setAdditionalImages(list.join(', '));
+                                }}
+                                style={styles.makeMainBtn}
+                              >
+                                <Text style={styles.makeMainBtnText}>Make Cover</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+
+                      {mediaInputMode === 'UPLOAD' ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            setUploadTarget('GALLERY');
+                            setPickerInputText('');
+                            setMediaPickerVisible(true);
+                          }}
+                          style={[styles.separateUploadBtn, { backgroundColor: c.accentLight, borderColor: c.accent }]}
+                          activeOpacity={0.8}
+                        >
+                          <Plus size={16} color={c.accent} />
+                          <Text style={[styles.separateUploadBtnText, { color: c.accent }]}>➕ Upload Additional Gallery Photo File</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TextField
+                          label="Additional Gallery URLs (Comma Separated)"
+                          placeholder="https://cdn.example.com/img1.jpg, https://cdn.example.com/img2.jpg"
+                          value={additionalImages}
+                          onChangeText={setAdditionalImages}
+                          multiline
+                        />
+                      )}
+                    </Card>
+
+                    {/* ── SECTION 3: PRODUCT DEMONSTRATION VIDEO ──────────────────── */}
+                    <Card style={styles.mediaSectionCard}>
+                      <View style={styles.sectionHeaderRow}>
+                        <Video size={18} color="#E11D48" />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.mediaSectionHeading, { color: c.textPrimary }]}>3. Product Demonstration Video</Text>
+                          <Text style={[styles.mediaSectionSub, { color: c.textMuted }]}>Attach video demo, mp4 payload or stream link</Text>
+                        </View>
+                        {videoUrl ? <Badge label="VIDEO READY" variant="success" size="sm" /> : null}
+                      </View>
+
+                      {videoUrl ? (
+                        <View style={[styles.videoCardPreview, { backgroundColor: 'rgba(225,29,72,0.08)', borderColor: '#E11D48' }]}>
+                          <Video size={22} color="#E11D48" />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.videoTitle, { color: '#E11D48' }]}>Linked Video Stream</Text>
+                            <Text style={[styles.videoSubText, { color: c.textMuted }]} numberOfLines={1}>{videoUrl}</Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => Linking.openURL(videoUrl).catch(() => Alert.alert('Video', 'Opening video link...'))}
+                            style={[styles.playVideoBtn, { backgroundColor: '#E11D48' }]}
+                          >
+                            <Text style={styles.playVideoBtnText}>▶ Play</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+
+                      {mediaInputMode === 'UPLOAD' ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            setUploadTarget('VIDEO');
+                            setPickerInputText(videoUrl || '');
+                            setMediaPickerVisible(true);
+                          }}
+                          style={[styles.separateUploadBtn, { backgroundColor: 'rgba(225,29,72,0.08)', borderColor: '#E11D48' }]}
+                          activeOpacity={0.8}
+                        >
+                          <Video size={16} color="#E11D48" />
+                          <Text style={[styles.separateUploadBtnText, { color: '#E11D48' }]}>🎬 Upload Product Video File</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TextField
+                          label="Video Stream URL"
+                          placeholder="https://example.com/demo.mp4 or YouTube / Vimeo link"
+                          value={videoUrl}
+                          onChangeText={setVideoUrl}
+                        />
+                      )}
+                    </Card>
                   </View>
                 )}
               </ScrollView>
@@ -687,6 +919,98 @@ export const ProductsScreen: React.FC = () => {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+      {/* ── Cross-Platform Media Upload & File Picker Sheet Modal (Android & iOS) ── */}
+      <Modal
+        visible={mediaPickerVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setMediaPickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.formSheet, { backgroundColor: theme.isDark ? c.surface : '#FFFFFF', borderColor: c.border }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ImageIcon size={20} color={c.primary} />
+                <Text style={[theme.typography.h3, { color: c.textPrimary }]}>
+                  {uploadTarget === 'PRIMARY' ? 'Upload Primary Cover Photo' : uploadTarget === 'GALLERY' ? 'Upload Additional Gallery Photo' : 'Upload Demonstration Video'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setMediaPickerVisible(false)}>
+                <X size={22} color={c.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <Text style={[theme.typography.caption, { color: c.textSecondary, marginBottom: 8 }]}>
+                Enter or paste local device file path (`file:///...`), storage URI, or Base64 data string:
+              </Text>
+
+              <TextField
+                label="Local Device File URI / Storage Path"
+                placeholder="file:///storage/emulated/0/DCIM/Camera/photo.jpg or data:image/png;base64,..."
+                value={pickerInputText}
+                onChangeText={setPickerInputText}
+                multiline
+              />
+
+              {/* Sample Preset Presets Grid for Quick 1-Tap Attach */}
+              <Text style={[theme.typography.caption, { color: c.textSecondary, fontWeight: '700', marginTop: 12, marginBottom: 8 }]}>
+                ⚡ Or Select a Sample Preset Asset (1-Tap):
+              </Text>
+
+              <View style={styles.presetGrid}>
+                {[
+                  { name: 'Headphones', url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500' },
+                  { name: 'Smartwatch', url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500' },
+                  { name: 'Sneakers', url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500' },
+                  { name: 'Backpack', url: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=500' },
+                  { name: 'Camera', url: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=500' },
+                  { name: 'Demo Video', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' },
+                ].map((preset, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    onPress={() => setPickerInputText(preset.url)}
+                    style={[
+                      styles.presetChip,
+                      {
+                        backgroundColor: pickerInputText === preset.url ? c.primary : theme.isDark ? c.surfaceSecondary : '#F1F5F9',
+                        borderColor: pickerInputText === preset.url ? c.primary : c.border,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.presetChipText, { color: pickerInputText === preset.url ? '#FFF' : c.textSecondary }]}>
+                      {preset.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={{ height: 16 }} />
+
+              <PrimaryButton
+                title="Attach Selected Media File"
+                onPress={() => {
+                  if (!pickerInputText.trim()) {
+                    Alert.alert('Required', 'Please enter a valid file path or select a preset.');
+                    return;
+                  }
+                  const val = pickerInputText.trim();
+                  if (uploadTarget === 'PRIMARY') {
+                    setImageUrl(val);
+                  } else if (uploadTarget === 'GALLERY') {
+                    const list = additionalImages.split(',').map(s => s.trim()).filter(Boolean);
+                    list.push(val);
+                    setAdditionalImages(list.join(', '));
+                  } else {
+                    setVideoUrl(val);
+                  }
+                  setMediaPickerVisible(false);
+                }}
+              />
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -957,5 +1281,313 @@ const styles = StyleSheet.create({
   formFooter: {
     marginTop: 14,
     marginBottom: 10,
+  },
+  mediaFormatSelectorBar: {
+    marginBottom: 6,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  formatChipRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  formatChip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  formatChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  mediaSectionCard: {
+    padding: 12,
+    marginVertical: 4,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  mediaSectionHeading: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  mediaSectionSub: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  primaryPreviewBox: {
+    width: '100%',
+    height: 140,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  primaryPreviewImg: {
+    width: '100%',
+    height: '100%',
+  },
+  clearMediaBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(239,68,68,0.9)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  clearMediaBtnText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  separateUploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+    marginVertical: 4,
+  },
+  separateUploadBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  galleryThumbGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  galleryThumbCard: {
+    width: 74,
+    height: 74,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  galleryThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  removeGalleryItemBtn: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    backgroundColor: 'rgba(239,68,68,0.9)',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  makeMainBtn: {
+    position: 'absolute',
+    bottom: 2,
+    left: 2,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  makeMainBtnText: {
+    color: '#FFF',
+    fontSize: 7,
+    fontWeight: '800',
+  },
+  videoCardPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+    marginBottom: 8,
+  },
+  videoTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  videoSubText: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  playVideoBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  playVideoBtnText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  mediaModeSelector: {
+    flexDirection: 'row',
+    gap: 8,
+    marginVertical: 6,
+  },
+  mediaModeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+  },
+  mediaModeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  responsiveMediaCard: {
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  responsiveMediaPreview: {
+    width: '100%',
+    height: 140,
+    borderRadius: 10,
+  },
+  mediaMetaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+  },
+  mediaMetaText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  videoPreviewCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 10,
+    marginTop: 4,
+  },
+  videoPreviewTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  videoPreviewSub: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  uploadDropzoneLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  dropzoneBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    gap: 4,
+  },
+  dropzoneTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  dropzoneSub: {
+    fontSize: 10,
+    textAlign: 'center',
+  },
+  browseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
+    marginTop: 8,
+    gap: 4,
+  },
+  browseBtnText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  uploadedGalleryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  uploadedImageCard: {
+    width: 68,
+    height: 68,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  uploadedImgThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  removeMediaBtn: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    backgroundColor: 'rgba(239,68,68,0.85)',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryBadgeTag: {
+    position: 'absolute',
+    bottom: 2,
+    left: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  primaryBadgeText: {
+    color: '#FFF',
+    fontSize: 7,
+    fontWeight: '800',
+  },
+  presetGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginVertical: 4,
+  },
+  presetChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  presetChipText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

@@ -296,20 +296,59 @@ export class OrderService {
   }
 
   /**
-   * Update order status (PATCH /orders/:id/status  or  PUT /orders/:id)
+   * Update order status with multi-fallback API calls & deep error diagnostic extraction
    */
   static async updateOrderStatus(id: number | string, status: string): Promise<Order> {
+    const targetStatus = status.toUpperCase();
+    const payload = {
+      status: targetStatus,
+      order_status: targetStatus,
+      orderStatus: targetStatus,
+    };
+
+    let lastError = 'Failed to update order status';
+
+    // 1. Try PATCH /orders/:id/status
     try {
-      const response = await axiosClient.patch(ENDPOINTS.ORDER_STATUS_UPDATE(id), { status });
+      const response = await axiosClient.patch(ENDPOINTS.ORDER_STATUS_UPDATE(id), payload);
       const normalized = normalizeApiResponse<any>(response.data);
-      const raw = normalized.data || response.data?.order;
-      return raw ? normalizeOrder(raw) : ({ id, status, total_amount: 0 } as Order);
-    } catch {
-      const response = await axiosClient.put(ENDPOINTS.ORDER_BY_ID(id), { status });
-      const normalized = normalizeApiResponse<any>(response.data);
-      const raw = normalized.data || response.data?.order;
-      return raw ? normalizeOrder(raw) : ({ id, status, total_amount: 0 } as Order);
+      const raw = normalized.data || response.data?.order || response.data;
+      if (raw) return normalizeOrder(raw);
+    } catch (err: any) {
+      lastError = err.response?.data?.message || err.message || lastError;
     }
+
+    // 2. Try PUT /orders/:id/status
+    try {
+      const response = await axiosClient.put(ENDPOINTS.ORDER_STATUS_UPDATE(id), payload);
+      const normalized = normalizeApiResponse<any>(response.data);
+      const raw = normalized.data || response.data?.order || response.data;
+      if (raw) return normalizeOrder(raw);
+    } catch (err: any) {
+      lastError = err.response?.data?.message || err.message || lastError;
+    }
+
+    // 3. Try PUT /orders/:id
+    try {
+      const response = await axiosClient.put(ENDPOINTS.ORDER_BY_ID(id), payload);
+      const normalized = normalizeApiResponse<any>(response.data);
+      const raw = normalized.data || response.data?.order || response.data;
+      if (raw) return normalizeOrder(raw);
+    } catch (err: any) {
+      lastError = err.response?.data?.message || err.message || lastError;
+    }
+
+    // 4. Try POST /orders/:id/status
+    try {
+      const response = await axiosClient.post(ENDPOINTS.ORDER_STATUS_UPDATE(id), payload);
+      const normalized = normalizeApiResponse<any>(response.data);
+      const raw = normalized.data || response.data?.order || response.data;
+      if (raw) return normalizeOrder(raw);
+    } catch (err: any) {
+      lastError = err.response?.data?.message || err.message || lastError;
+    }
+
+    throw new Error(lastError);
   }
 
   /**

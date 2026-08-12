@@ -207,39 +207,218 @@ export const SidebarDrawer: React.FC = () => {
     setTimeout(() => {
       try {
         switch (menu.path) {
+          // ── Dashboards ──────────────────────────────────────────
           case '/admin':
           case '/dashboard':
             navigation.navigate('Dashboard');
             break;
+
+          // ── Commerce & Products ──────────────────────────────────
           case '/product':
+          case '/products':
             navigation.navigate('Products');
             break;
+          case '/category':
+          case '/categories':
+            navigation.navigate('Categories');
+            break;
+          case '/coupons':
+          case '/coupon':
+            navigation.navigate('Coupons');
+            break;
+          case '/pos-billing':
+          case '/pos':
+            navigation.navigate('POSBilling');
+            break;
+
+          // ── Orders & Fulfilment ──────────────────────────────────
           case '/orders':
             navigation.navigate('Orders');
             break;
+          case '/delivery-tracking':
+          case '/delivery':
+            navigation.navigate('DeliveryTracking');
+            break;
+
+          // ── Inventory & Stock ────────────────────────────────────
+          case '/stock':
+          case '/stocks':
+          case '/branch-stock':
+            navigation.navigate('Stocks');
+            break;
+
+          // ── Branches & Customers ─────────────────────────────────
           case '/branch':
+          case '/branches':
             navigation.navigate('Branches');
             break;
-          case '/employees':
-            navigation.navigate('Employees');
-            break;
           case '/customers':
+          case '/customer':
             navigation.navigate('Customers');
+            break;
+
+          // ── Workforce & HR ───────────────────────────────────────
+          case '/employees':
+          case '/employee':
+            navigation.navigate('Employees');
             break;
           case '/attendance':
             navigation.navigate('Attendance');
             break;
+          case '/payroll':
+            navigation.navigate('Payroll');
+            break;
+          case '/leave':
+            navigation.navigate('Leave');
+            break;
+          case '/shifts':
+          case '/shift':
+            navigation.navigate('Shifts');
+            break;
 
+          // ── Finance & Payments ───────────────────────────────────
+          case '/payments':
+          case '/payment':
+            navigation.navigate('Payments');
+            break;
+          case '/profit-loss':
+          case '/profitloss':
+            navigation.navigate('ProfitLoss');
+            break;
+
+          // ── Admin & System ───────────────────────────────────────
           case '/role-access':
             navigation.navigate('RoleAccess');
             break;
+          case '/audit-logs':
+          case '/audit':
+            navigation.navigate('AuditLogs');
+            break;
+          case '/approvals':
+          case '/approval':
+            navigation.navigate('Approvals');
+            break;
+
+          // ── Communication ────────────────────────────────────────
           case '/alerts':
           case '/notifications':
             navigation.navigate('Notifications');
             break;
+
+          // ── Profile ──────────────────────────────────────────────
           case '/profile':
             navigation.navigate('Profile');
             break;
+
+          // ── Invoices ─────────────────────────────────────────────
+          case '/invoices':
+          case '/invoice':
+            navigation.navigate('Invoices');
+            break;
+
+          // ── Subscriptions ─────────────────────────────────────────
+          case '/subscriptions':
+          case '/subscription':
+          case '/subscriptions/plans':
+            navigation.navigate('Subscription');
+            break;
+
+          // ── CRM Contacts ─────────────────────────────────────────
+          case '/contacts':
+          case '/crm':
+            navigation.navigate('CRMContacts');
+            break;
+
+          // ── Workforce & HR Console ───────────────────────────────
+          case '/workforce/live':
+          case '/workforce':
+            navigation.navigate('WorkforceConsole');
+            break;
+          case '/break-policies':
+            navigation.navigate('BreakPolicies');
+            break;
+          case '/geofences':
+          case '/gps':
+            navigation.navigate('Geofencing');
+            break;
+          case '/workforce/requests':
+            navigation.navigate('WorkforceRequests');
+            break;
+
+          // ── Chat & Meetings ──────────────────────────────────────
+          case '/chat/rooms':
+          case '/chat':
+            navigation.navigate('SecureChat');
+            break;
+          case '/meetings':
+          case '/meeting':
+            navigation.navigate('TeamMeetings');
+            break;
+
+          // ── Mobility Platform ────────────────────────────────────
+          case '/mobility/cockpit':
+          case '/mobility':
+            navigation.navigate('MobilityCockpit');
+            break;
+          case '/mobility/vehicles/nearby':
+            navigation.navigate('VehicleNearby');
+            break;
+          case '/mobility/bookings':
+            navigation.navigate('MobilityBookings');
+            break;
+          case '/mobility/rentals':
+            navigation.navigate('CarRentals');
+            break;
+          case '/mobility/parcels':
+            navigation.navigate('ParcelLogistics');
+            break;
+          case '/mobility/fleet':
+            navigation.navigate('FleetAssets');
+            break;
+          case '/mobility/transit':
+            navigation.navigate('TransitRoutes');
+            break;
+          case '/mobility/telemetry':
+            navigation.navigate('GPSTelemetry');
+            break;
+          case '/mobility/kyc':
+            navigation.navigate('VehicleKYC');
+            break;
+
+          // ── Product Attributes & Masters ─────────────────────────
+          case '/product-attributes':
+            navigation.navigate('ProductAttributes');
+            break;
+          case '/attribute-values':
+            navigation.navigate('AttributeValues');
+            break;
+
+          // ── System & Hardware Masters ────────────────────────────
+          case '/status-master':
+            navigation.navigate('StatusMaster');
+            break;
+          case '/menus':
+            navigation.navigate('MenuBar');
+            break;
+          case '/devices':
+            navigation.navigate('HardwareDevices');
+            break;
+          case '/languages':
+            navigation.navigate('TranslationKeys');
+            break;
+          case '/calendar':
+            navigation.navigate('CompanyCalendar');
+            break;
+
+          // ── Workforce Masters ─────────────────────────────────────
+          case '/biometrics':
+            navigation.navigate('Biometrics');
+            break;
+          case '/employee-documents':
+            navigation.navigate('EmployeeDocuments');
+            break;
+
+          // ── All other modules → DynamicModuleScreen fallback ─────
           default:
             navigation.navigate('DynamicModule', {
               title: menu.name,
