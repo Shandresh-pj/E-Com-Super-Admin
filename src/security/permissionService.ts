@@ -1,21 +1,59 @@
-import { PermissionsAndroid, Platform, Alert } from 'react-native';
+import { PermissionsAndroid, Platform, Alert, Linking } from 'react-native';
 
-export type PermissionType = 'camera' | 'notifications' | 'location' | 'storage';
+export type PermissionType = 'camera' | 'notifications' | 'location' | 'storage' | 'biometrics';
 
 export interface PermissionStatus {
   camera: boolean;
   notifications: boolean;
   location: boolean;
   storage?: boolean;
+  biometrics?: boolean;
 }
 
 export class PermissionService {
+  /**
+   * Check single permission
+   */
+  static async checkPermission(type: PermissionType): Promise<boolean> {
+    if (Platform.OS !== 'android') return true;
+
+    try {
+      switch (type) {
+        case 'camera':
+          return await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
+
+        case 'notifications':
+          if (Platform.Version >= 33) {
+            return await PermissionsAndroid.check('android.permission.POST_NOTIFICATIONS' as any);
+          }
+          return true;
+
+        case 'location':
+          return await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+
+        case 'storage':
+          if (Platform.Version >= 33) {
+            return await PermissionsAndroid.check('android.permission.READ_MEDIA_IMAGES' as any);
+          }
+          return await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE);
+
+        case 'biometrics':
+          return true;
+
+        default:
+          return true;
+      }
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Check current status of all major app permissions
    */
   static async checkAllPermissions(): Promise<PermissionStatus> {
     if (Platform.OS !== 'android') {
-      return { camera: true, notifications: true, location: true, storage: true };
+      return { camera: true, notifications: true, location: true, storage: true, biometrics: true };
     }
 
     try {
@@ -43,9 +81,9 @@ export class PermissionService {
         );
       }
 
-      return { camera, notifications, location, storage };
+      return { camera, notifications, location, storage, biometrics: true };
     } catch {
-      return { camera: false, notifications: false, location: false, storage: false };
+      return { camera: false, notifications: false, location: false, storage: false, biometrics: true };
     }
   }
 
@@ -97,7 +135,6 @@ export class PermissionService {
           // fallback to standard check
         }
 
-        // Try generic storage request fallback
         const altGranted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
           {
@@ -182,7 +219,7 @@ export class PermissionService {
    */
   static async requestAllEssentialPermissions(): Promise<PermissionStatus> {
     if (Platform.OS !== 'android') {
-      return { camera: true, notifications: true, location: true, storage: true };
+      return { camera: true, notifications: true, location: true, storage: true, biometrics: true };
     }
 
     try {
@@ -209,10 +246,19 @@ export class PermissionService {
         ? (results as any)['android.permission.READ_MEDIA_IMAGES'] === PermissionsAndroid.RESULTS.GRANTED
         : results[PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE] === PermissionsAndroid.RESULTS.GRANTED;
 
-      return { camera, notifications, location, storage };
+      return { camera, notifications, location, storage, biometrics: true };
     } catch (err) {
       console.warn('Request all permissions error:', err);
-      return { camera: false, notifications: false, location: false, storage: false };
+      return { camera: false, notifications: false, location: false, storage: false, biometrics: true };
     }
+  }
+
+  /**
+   * Open Device System App Settings
+   */
+  static openAppSettings(): void {
+    Linking.openSettings().catch(() => {
+      Alert.alert('Unable to open Settings', 'Please manually open your device Settings -> Apps -> SVK E-Com Pro.');
+    });
   }
 }

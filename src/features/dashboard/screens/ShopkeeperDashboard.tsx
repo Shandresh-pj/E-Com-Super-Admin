@@ -18,6 +18,7 @@ import { OrderService } from '../../orders/services/orderService';
 import { useTheme } from '../../../theme/theme';
 import { ShoppingCart, Plus, Minus, Trash2, CreditCard, IndianRupee } from 'lucide-react-native';
 import { ExecutiveProfileCard } from '../../../components/cards/ExecutiveProfileCard';
+import { BarcodeScannerModal } from '../../../components/scanner/BarcodeScannerModal';
 
 export interface CartItem {
   product: Product;
@@ -30,12 +31,32 @@ export const ShopkeeperDashboard: React.FC = () => {
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [scannerVisible, setScannerVisible] = useState(false);
 
   const products = metrics?.productsList || [];
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     (p.barcode && p.barcode.includes(search))
   );
+
+  const handleBarcodeScanned = (scannedCode: string, matchedProduct?: Product | null) => {
+    // 1. Check if matched product was returned directly
+    if (matchedProduct) {
+      addToCart(matchedProduct);
+      Alert.alert('Product Added', `Added "${matchedProduct.name}" to cart.`);
+      return;
+    }
+
+    // 2. Check local list
+    const found = products.find((p) => p.barcode === scannedCode || p.sku === scannedCode);
+    if (found) {
+      addToCart(found);
+      Alert.alert('Product Added', `Added "${found.name}" to cart.`);
+    } else {
+      setSearch(scannedCode);
+      Alert.alert('Barcode Scanned', `Filtered catalog for barcode "${scannedCode}".`);
+    }
+  };
 
   const addToCart = (product: Product) => {
     setCart((prev) => {
@@ -141,6 +162,7 @@ export const ShopkeeperDashboard: React.FC = () => {
         placeholder="Search product name or scan barcode..."
         value={search}
         onChangeText={setSearch}
+        onScanBarcode={() => setScannerVisible(true)}
       />
 
       <View style={styles.posLayout}>
@@ -172,7 +194,7 @@ export const ShopkeeperDashboard: React.FC = () => {
 
           {cart.length === 0 ? (
             <Text style={[theme.typography.body2, { color: theme.colors.textMuted, marginVertical: 16 }]}>
-              Tap products on the left to add them to the bill.
+              Tap products on the left or scan barcodes to add them to the bill.
             </Text>
           ) : (
             cart.map((item) => (
@@ -181,8 +203,8 @@ export const ShopkeeperDashboard: React.FC = () => {
                   <Text style={[theme.typography.subtitle2, { color: theme.colors.textPrimary }]} numberOfLines={1}>
                     {item.product.name}
                   </Text>
-                  <Text style={[theme.typography.caption, { color: theme.colors.primary }]}>
-                    ₹{parseFloat(String(item.product.price)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                    ₹{parseFloat(String(item.product.price)).toLocaleString('en-IN', { minimumFractionDigits: 2 })} × {item.quantity}
                   </Text>
                 </View>
 
@@ -223,6 +245,14 @@ export const ShopkeeperDashboard: React.FC = () => {
           />
         </View>
       </View>
+
+      <BarcodeScannerModal
+        visible={scannerVisible}
+        onClose={() => setScannerVisible(false)}
+        onScan={handleBarcodeScanned}
+        title="POS Barcode Scanner"
+        subtitle="Scan product barcode to add to current bill"
+      />
     </ScreenContainer>
   );
 };

@@ -1,4 +1,4 @@
-﻿// StatusMasterScreen.tsx
+// StatusMasterScreen.tsx
 import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Alert, TextInput } from "react-native";
 import { ScreenContainer } from "../../../components/common/ScreenContainer";
@@ -50,7 +50,7 @@ export const StatusMasterScreen: React.FC = () => {
     if (!name.trim()) { Alert.alert("Required", "Status name is required."); return; }
     setSubmitting(true);
     try {
-      await axiosClient.post(ENDPOINTS.STATUS_MASTER, { name, module, color_code: colorCode });
+      await axiosClient.post(ENDPOINTS.STATUS_ADD, { name, module, color_code: colorCode });
       Alert.alert("Created", `Status "${name}" created.`);
       setAddModal(false); setName(""); fetchStatuses(true);
     } catch (e: any) { Alert.alert("Error", e.message || "Create failed."); }

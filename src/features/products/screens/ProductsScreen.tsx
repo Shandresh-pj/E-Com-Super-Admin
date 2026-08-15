@@ -13,6 +13,8 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { ScreenContainer } from '../../../components/common/ScreenContainer';
 import { Header } from '../../../components/common/Header';
@@ -26,7 +28,6 @@ import { DashboardSkeleton } from '../../../components/skeletons/SkeletonLoader'
 import { EmptyState, ErrorState } from '../../../components/common/States';
 import { useTheme } from '../../../theme/theme';
 import { getApiBaseUrl } from '../../../config/environment';
-import { resolveMediaUrl } from '../../../utils/mediaUrl';
 import {
   Plus,
   Search,
@@ -38,17 +39,43 @@ import {
   Sparkles,
   Barcode,
   Percent,
+  Camera,
+  LayoutGrid,
+  List as ListIcon,
+  TrendingUp,
+  AlertTriangle,
+  Package,
+  IndianRupee,
+  Share2,
+  Edit2,
+  Trash2,
+  CheckCircle2,
+  ArrowUpDown,
+  Filter,
 } from 'lucide-react-native';
+import { BarcodeScannerModal } from '../../../components/scanner/BarcodeScannerModal';
+
+type SortOption = 'DEFAULT' | 'PRICE_ASC' | 'PRICE_DESC' | 'STOCK_DESC' | 'NAME_ASC';
+type StockFilter = 'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
 
 export const ProductsScreen: React.FC = () => {
   const theme = useTheme();
+  const c = theme.colors;
+  const { width } = useWindowDimensions();
+
+  // Data State
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Filters & Controls
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
-  const [error, setError] = useState<string | null>(null);
+  const [selectedStockFilter, setSelectedStockFilter] = useState<StockFilter>('ALL');
+  const [sortBy, setSortBy] = useState<SortOption>('DEFAULT');
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
   // Modals
   const [detailModalVisible, setDetailModalVisible] = useState(false);
@@ -56,6 +83,8 @@ export const ProductsScreen: React.FC = () => {
   const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [scannerModalVisible, setScannerModalVisible] = useState(false);
+  const [scannerTarget, setScannerTarget] = useState<'search' | 'form'>('search');
 
   // Active form tab: 'basic' | 'pricing' | 'inventory' | 'media'
   const [formTab, setFormTab] = useState<'basic' | 'pricing' | 'inventory' | 'media'>('basic');
@@ -78,17 +107,16 @@ export const ProductsScreen: React.FC = () => {
   const [additionalImages, setAdditionalImages] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [taxRate, setTaxRate] = useState('18');
-  const [mediaInputMode, setMediaInputMode] = useState<'URL' | 'UPLOAD'>('URL');
 
-  // Cross-Platform Media Picker Modal State (Android & iOS)
+  // Media Picker Modal State
   const [mediaPickerVisible, setMediaPickerVisible] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<'PRIMARY' | 'GALLERY' | 'VIDEO'>('PRIMARY');
   const [pickerInputText, setPickerInputText] = useState('');
 
-  // Active Gallery Image Index
+  // Active Gallery Image Index in Detail View
   const [activeImgIndex, setActiveImgIndex] = useState(0);
 
-  // Debounce search to avoid API call on every keystroke
+  // Debounce search
   const searchDebounceRef = useRef<any>(null);
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -99,6 +127,18 @@ export const ProductsScreen: React.FC = () => {
       setDebouncedSearch(text);
     }, 300);
   }, []);
+
+  const handleProductBarcodeScanned = useCallback((scannedCode: string, matchedProduct?: Product | null) => {
+    if (scannerTarget === 'search') {
+      setSearchQuery(scannedCode);
+      handleSearchChange(scannedCode);
+    } else {
+      setBarcode(scannedCode);
+      if (matchedProduct && !name) {
+        setName(matchedProduct.name || '');
+      }
+    }
+  }, [scannerTarget, handleSearchChange, name]);
 
   const fetchProducts = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -123,6 +163,17 @@ export const ProductsScreen: React.FC = () => {
   useEffect(() => {
     fetchProducts();
   }, [debouncedSearch, fetchProducts]);
+
+  // Executive KPI Calculations
+  const totalSkus = products.length;
+  const totalStockUnits = products.reduce((acc, p) => acc + (p.stock !== undefined ? p.stock : (p.stock_in_hand || 0)), 0);
+  const totalValuation = products.reduce(
+    (acc, p) => acc + parseFloat(String(p.price || 0)) * (p.stock !== undefined ? p.stock : (p.stock_in_hand || 0)),
+    0
+  );
+  const lowStockCount = products.filter(
+    (p) => (p.stock !== undefined ? p.stock : (p.stock_in_hand || 0)) <= 5
+  ).length;
 
   // Open Detail View
   const handleOpenDetail = (prod: Product) => {
@@ -203,57 +254,6 @@ export const ProductsScreen: React.FC = () => {
         imgArray.unshift(imageUrl);
       }
 
-      const hasLocalMedia = (uri?: string) => uri && (uri.startsWith('file://') || uri.startsWith('content://') || uri.startsWith('data:'));
-
-      let formDataPayload: FormData | undefined = undefined;
-
-      if (hasLocalMedia(imageUrl) || imgArray.some(hasLocalMedia) || hasLocalMedia(videoUrl)) {
-        formDataPayload = new FormData();
-        formDataPayload.append('name', name);
-        formDataPayload.append('description', description);
-        formDataPayload.append('price', String(parseFloat(price)));
-        if (mrp) formDataPayload.append('compare_at_price', String(parseFloat(mrp)));
-        if (purchaseCost) formDataPayload.append('purchase_cost', String(parseFloat(purchaseCost)));
-        if (stock) formDataPayload.append('stock', stock);
-        if (sku) formDataPayload.append('sku', sku);
-        if (barcode) formDataPayload.append('barcode', barcode);
-        if (category) formDataPayload.append('category', category);
-        if (brand) formDataPayload.append('brand', brand);
-        if (unit) formDataPayload.append('unit', unit);
-        if (taxRate) formDataPayload.append('tax_rate', taxRate);
-
-        if (imageUrl) {
-          if (hasLocalMedia(imageUrl)) {
-            const filename = imageUrl.split('/').pop() || 'primary_cover.jpg';
-            const type = imageUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
-            formDataPayload.append('image', { uri: imageUrl, name: filename, type } as any);
-          } else {
-            formDataPayload.append('image_url', imageUrl);
-          }
-        }
-
-        if (imgArray.length > 0) {
-          imgArray.forEach((imgUri, i) => {
-            if (hasLocalMedia(imgUri)) {
-              const fname = imgUri.split('/').pop() || `gallery_${i}.jpg`;
-              const ftype = imgUri.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
-              formDataPayload!.append('images', { uri: imgUri, name: fname, type: ftype } as any);
-            } else {
-              formDataPayload!.append('additional_images', imgUri);
-            }
-          });
-        }
-
-        if (videoUrl) {
-          if (hasLocalMedia(videoUrl)) {
-            const vname = videoUrl.split('/').pop() || 'demo_video.mp4';
-            formDataPayload.append('video', { uri: videoUrl, name: vname, type: 'video/mp4' } as any);
-          } else {
-            formDataPayload.append('video_url', videoUrl);
-          }
-        }
-      }
-
       const jsonPayload: Partial<Product> = {
         name,
         description,
@@ -277,11 +277,11 @@ export const ProductsScreen: React.FC = () => {
       };
 
       if (formMode === 'add') {
-        const created = await ProductService.createProduct(jsonPayload, formDataPayload);
+        const created = await ProductService.createProduct(jsonPayload);
         setProducts((prev) => [created, ...prev]);
         Alert.alert('Success', 'Product created and listed successfully.');
       } else if (selectedProduct) {
-        const updated = await ProductService.updateProduct(selectedProduct.id, jsonPayload, formDataPayload);
+        const updated = await ProductService.updateProduct(selectedProduct.id, jsonPayload);
         setProducts((prev) => prev.map((p) => (p.id === selectedProduct.id ? updated : p)));
         Alert.alert('Success', 'Product updated successfully.');
       }
@@ -307,21 +307,45 @@ export const ProductsScreen: React.FC = () => {
           onPress: async () => {
             setProducts((prev) => prev.filter((p) => p.id !== prod.id));
             await ProductService.deleteProduct(prod.id);
+            if (detailModalVisible) setDetailModalVisible(false);
           },
         },
       ]
     );
   };
 
-  // Filter products by category
-  const filteredProducts = products.filter((p) => {
-    if (selectedCategory === 'ALL') return true;
-    return p.category?.toLowerCase() === selectedCategory.toLowerCase();
-  });
+  // Filtered & Sorted products
+  const filteredProducts = useMemo(() => {
+    let list = products.filter((p) => {
+      // Category filter
+      if (selectedCategory !== 'ALL' && p.category?.toLowerCase() !== selectedCategory.toLowerCase()) {
+        return false;
+      }
+      // Stock filter
+      const curStock = p.stock !== undefined ? p.stock : (p.stock_in_hand || 0);
+      if (selectedStockFilter === 'IN_STOCK' && curStock <= 0) return false;
+      if (selectedStockFilter === 'LOW_STOCK' && (curStock > 5 || curStock <= 0)) return false;
+      if (selectedStockFilter === 'OUT_OF_STOCK' && curStock > 0) return false;
 
-  const c = theme.colors;
+      return true;
+    });
 
-  // Resolve detail image gallery list
+    // Sorting
+    switch (sortBy) {
+      case 'PRICE_ASC':
+        return list.sort((a, b) => parseFloat(String(a.price || 0)) - parseFloat(String(b.price || 0)));
+      case 'PRICE_DESC':
+        return list.sort((a, b) => parseFloat(String(b.price || 0)) - parseFloat(String(a.price || 0)));
+      case 'STOCK_DESC':
+        return list.sort((a, b) => (b.stock || 0) - (a.stock || 0));
+      case 'NAME_ASC':
+        return list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      default:
+        return list;
+    }
+  }, [products, selectedCategory, selectedStockFilter, sortBy]);
+
+  // Gallery URL Resolver
   const getDetailGallery = (prod: Product): string[] => {
     const list: string[] = [];
     if (prod.images && prod.images.length > 0) {
@@ -351,13 +375,44 @@ export const ProductsScreen: React.FC = () => {
               activeOpacity={0.8}
             >
               <Plus size={16} color="#FFFFFF" strokeWidth={2.5} />
-              <Text style={styles.addBtnText}>Add</Text>
+              <Text style={styles.addBtnText}>Add Product</Text>
             </TouchableOpacity>
           }
         />
 
-        {/* ── Search Bar ────────────────────────────────────────────── */}
-        <View style={[styles.searchBox, { backgroundColor: theme.isDark ? c.surfaceSecondary : '#F1F5F9', borderColor: c.border }]}>
+        {/* ── 1. Executive Portfolio KPI Metrics Strip ─────────────── */}
+        <View style={styles.kpiContainer}>
+          <View style={[styles.kpiBox, { backgroundColor: theme.isDark ? '#0F172A' : '#F8FAFC', borderColor: c.border }]}>
+            <Package size={14} color={c.primary} style={{ marginBottom: 4 }} />
+            <Text style={[styles.kpiValue, { color: c.textPrimary }]}>{totalSkus}</Text>
+            <Text style={[styles.kpiLabel, { color: c.textMuted }]}>TOTAL SKUs</Text>
+          </View>
+
+          <View style={[styles.kpiBox, { backgroundColor: theme.isDark ? '#0F172A' : '#F8FAFC', borderColor: c.border }]}>
+            <Box size={14} color="#10B981" style={{ marginBottom: 4 }} />
+            <Text style={[styles.kpiValue, { color: '#10B981' }]}>{totalStockUnits}</Text>
+            <Text style={[styles.kpiLabel, { color: c.textMuted }]}>IN STOCK</Text>
+          </View>
+
+          <View style={[styles.kpiBox, { backgroundColor: theme.isDark ? '#0F172A' : '#F8FAFC', borderColor: c.border }]}>
+            <IndianRupee size={14} color={c.accent} style={{ marginBottom: 4 }} />
+            <Text style={[styles.kpiValue, { color: c.textPrimary }]}>
+              ₹{(totalValuation / 100000).toFixed(1)}L
+            </Text>
+            <Text style={[styles.kpiLabel, { color: c.textMuted }]}>VALUATION</Text>
+          </View>
+
+          <View style={[styles.kpiBox, { backgroundColor: theme.isDark ? '#0F172A' : '#F8FAFC', borderColor: c.border }]}>
+            <AlertTriangle size={14} color={lowStockCount > 0 ? '#EF4444' : '#94A3B8'} style={{ marginBottom: 4 }} />
+            <Text style={[styles.kpiValue, { color: lowStockCount > 0 ? '#EF4444' : c.textPrimary }]}>
+              {lowStockCount}
+            </Text>
+            <Text style={[styles.kpiLabel, { color: c.textMuted }]}>LOW STOCK</Text>
+          </View>
+        </View>
+
+        {/* ── 2. Search & Quick Barcode Scanner Bar ──────────────────── */}
+        <View style={[styles.searchBox, { backgroundColor: theme.isDark ? '#0F172A' : '#F8FAFC', borderColor: c.border }]}>
           <Search size={18} color={c.textMuted} />
           <TextInput
             placeholder="Search products by title, SKU, barcode..."
@@ -367,13 +422,67 @@ export const ProductsScreen: React.FC = () => {
             style={[styles.searchInput, { color: c.textPrimary }]}
           />
           {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
               <X size={16} color={c.textMuted} />
             </TouchableOpacity>
           ) : null}
+          <TouchableOpacity
+            onPress={() => {
+              setScannerTarget('search');
+              setScannerModalVisible(true);
+            }}
+            style={[styles.scanTriggerBtn, { backgroundColor: theme.isDark ? '#1E293B' : '#EEF2FF', borderColor: c.primary }]}
+            activeOpacity={0.7}
+          >
+            <Barcode size={16} color={c.primary} />
+          </TouchableOpacity>
         </View>
 
-        {/* ── Category Filters ──────────────────────────────────────── */}
+        {/* ── 3. Filters & View Mode Switcher Row ───────────────────── */}
+        <View style={styles.controlsRow}>
+          {/* Stock Filter Chips */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stockFilterScroll}>
+            {(['ALL', 'IN_STOCK', 'LOW_STOCK', 'OUT_OF_STOCK'] as StockFilter[]).map((stk) => {
+              const isSelected = selectedStockFilter === stk;
+              const label = stk === 'ALL' ? 'All Stock' : stk === 'IN_STOCK' ? 'In Stock' : stk === 'LOW_STOCK' ? 'Low Stock (≤5)' : 'Out of Stock';
+              return (
+                <TouchableOpacity
+                  key={stk}
+                  onPress={() => setSelectedStockFilter(stk)}
+                  style={[
+                    styles.stockChip,
+                    {
+                      backgroundColor: isSelected ? c.primary : theme.isDark ? '#0F172A' : '#F1F5F9',
+                      borderColor: isSelected ? c.primary : c.border,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.stockChipText, { color: isSelected ? '#FFFFFF' : c.textSecondary }]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {/* View Mode Toggle */}
+          <View style={[styles.viewModeToggle, { backgroundColor: theme.isDark ? '#0F172A' : '#F1F5F9', borderColor: c.border }]}>
+            <TouchableOpacity
+              onPress={() => setViewMode('list')}
+              style={[styles.viewModeBtn, viewMode === 'list' && { backgroundColor: c.primary }]}
+            >
+              <ListIcon size={14} color={viewMode === 'list' ? '#FFFFFF' : c.textMuted} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setViewMode('grid')}
+              style={[styles.viewModeBtn, viewMode === 'grid' && { backgroundColor: c.primary }]}
+            >
+              <LayoutGrid size={14} color={viewMode === 'grid' ? '#FFFFFF' : c.textMuted} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ── 4. Category Filter Chips ──────────────────────────────── */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -385,13 +494,13 @@ export const ProductsScreen: React.FC = () => {
             style={[
               styles.filterChip,
               {
-                backgroundColor: selectedCategory === 'ALL' ? c.primary : c.surfaceSecondary,
+                backgroundColor: selectedCategory === 'ALL' ? c.primary : theme.isDark ? '#0F172A' : '#F8FAFC',
                 borderColor: selectedCategory === 'ALL' ? c.primary : c.border,
               },
             ]}
           >
             <Text style={[styles.filterChipText, { color: selectedCategory === 'ALL' ? '#FFFFFF' : c.textSecondary }]}>
-              All ({products.length})
+              All Categories ({products.length})
             </Text>
           </TouchableOpacity>
 
@@ -404,7 +513,7 @@ export const ProductsScreen: React.FC = () => {
                 style={[
                   styles.filterChip,
                   {
-                    backgroundColor: isSelected ? c.primary : c.surfaceSecondary,
+                    backgroundColor: isSelected ? c.primary : theme.isDark ? '#0F172A' : '#F8FAFC',
                     borderColor: isSelected ? c.primary : c.border,
                   },
                 ]}
@@ -417,7 +526,7 @@ export const ProductsScreen: React.FC = () => {
           })}
         </ScrollView>
 
-        {/* ── Product List ──────────────────────────────────────────── */}
+        {/* ── 5. Product Grid / List Showcase ──────────────────────── */}
         {loading && !refreshing ? (
           <DashboardSkeleton />
         ) : error ? (
@@ -425,35 +534,41 @@ export const ProductsScreen: React.FC = () => {
         ) : filteredProducts.length === 0 ? (
           <EmptyState
             title="No Products Found"
-            description={searchQuery ? `No matches for "${searchQuery}".` : 'No items cataloged yet. Tap Add Product to create one.'}
+            description="Try changing category filters or click '+ Add Product' to register items."
           />
-        ) : null}
-
-        {/* FlatList replaces map() for virtualized, performant rendering */}
-        {!loading && !error && filteredProducts.length > 0 && (
+        ) : viewMode === 'grid' ? (
           <FlatList
             data={filteredProducts}
             keyExtractor={(item) => String(item.id)}
+            numColumns={2}
+            scrollEnabled={false}
             renderItem={({ item }) => (
               <ProductCard
                 product={item}
+                viewMode="grid"
                 onPress={() => handleOpenDetail(item)}
                 onEdit={() => handleOpenEdit(item)}
                 onDelete={() => handleDeleteProduct(item)}
               />
             )}
-            initialNumToRender={8}
-            maxToRenderPerBatch={10}
-            windowSize={5}
-            removeClippedSubviews={Platform.OS === 'android'}
-            scrollEnabled={false}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 8 }}
           />
+        ) : (
+          filteredProducts.map((item) => (
+            <ProductCard
+              key={item.id}
+              product={item}
+              viewMode="list"
+              onPress={() => handleOpenDetail(item)}
+              onEdit={() => handleOpenEdit(item)}
+              onDelete={() => handleDeleteProduct(item)}
+            />
+          ))
         )}
       </ScreenContainer>
 
-      {/* ── Product Detail Modal ────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {/* ── PRODUCT DETAIL PREVIEW MODAL SHEET ─────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
       <Modal
         visible={detailModalVisible}
         animationType="slide"
@@ -461,57 +576,35 @@ export const ProductsScreen: React.FC = () => {
         onRequestClose={() => setDetailModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.detailSheet, { backgroundColor: theme.isDark ? c.surface : '#FFFFFF', borderColor: c.border }]}>
-            {selectedProduct && (
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {/* Header */}
-                <View style={styles.modalHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[theme.typography.h3, { color: c.textPrimary }]}>{selectedProduct.name}</Text>
-                    <Text style={[theme.typography.caption, { color: c.textMuted }]}>
-                      {selectedProduct.category || 'General'} · {selectedProduct.brand || 'Enterprise'}
-                    </Text>
-                  </View>
-                  <TouchableOpacity onPress={() => setDetailModalVisible(false)} style={styles.closeBtn}>
-                    <X size={20} color={c.textMuted} />
-                  </TouchableOpacity>
-                </View>
+          <View style={[styles.detailSheet, { backgroundColor: theme.isDark ? '#0B0F19' : '#FFFFFF', borderColor: c.border }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.detailHeading, { color: c.textPrimary }]}>Product Specification</Text>
+              <TouchableOpacity onPress={() => setDetailModalVisible(false)} style={styles.closeBtn}>
+                <X size={20} color={c.textPrimary} />
+              </TouchableOpacity>
+            </View>
 
-                {/* Image Gallery Viewer */}
+            {selectedProduct && (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+                {/* Image Gallery Showcase */}
                 {(() => {
                   const gallery = getDetailGallery(selectedProduct);
+                  if (gallery.length === 0) return null;
                   return (
                     <View style={styles.galleryWrapper}>
-                      <View style={[styles.mainImageBox, { backgroundColor: theme.isDark ? c.surfaceSecondary : '#F1F5F9' }]}>
-                        {gallery.length > 0 ? (
-                          <Image
-                            source={{ uri: gallery[activeImgIndex] || gallery[0] }}
-                            style={styles.mainImage}
-                            resizeMode="contain"
-                          />
-                        ) : (
-                          <View style={styles.noImageBox}>
-                            <Box size={48} color={c.primary} />
-                            <Text style={[styles.noImageText, { color: c.textMuted }]}>No Photo Attached</Text>
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Thumbnail Strip */}
+                      <Image source={{ uri: gallery[activeImgIndex] || gallery[0] }} style={styles.galleryMainImg} resizeMode="contain" />
                       {gallery.length > 1 && (
-                        <ScrollView horizontal style={styles.thumbStrip}>
-                          {gallery.map((uri, idx) => (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbScroll}>
+                          {gallery.map((img, i) => (
                             <TouchableOpacity
-                              key={idx}
-                              onPress={() => setActiveImgIndex(idx)}
+                              key={`thumb-${i}`}
+                              onPress={() => setActiveImgIndex(i)}
                               style={[
-                                styles.thumbBox,
-                                {
-                                  borderColor: activeImgIndex === idx ? c.primary : c.border,
-                                },
+                                styles.thumbBtn,
+                                { borderColor: activeImgIndex === i ? c.primary : c.border },
                               ]}
                             >
-                              <Image source={{ uri }} style={styles.thumbImage} resizeMode="cover" />
+                              <Image source={{ uri: img }} style={styles.thumbImg} resizeMode="cover" />
                             </TouchableOpacity>
                           ))}
                         </ScrollView>
@@ -520,100 +613,92 @@ export const ProductsScreen: React.FC = () => {
                   );
                 })()}
 
-                {/* Video Demo Button */}
-                {selectedProduct.video_url ? (
-                  <TouchableOpacity
-                    onPress={() => {
-                      if (selectedProduct.video_url) Linking.openURL(selectedProduct.video_url);
-                    }}
-                    style={[styles.videoLinkBtn, { backgroundColor: c.accentLight }]}
-                  >
-                    <Video size={16} color={c.accent} />
-                    <Text style={[styles.videoLinkText, { color: c.accent }]}>Watch Product Video Demonstration</Text>
-                  </TouchableOpacity>
-                ) : null}
+                {/* Product Title & Brand */}
+                <Text style={[styles.detailTitle, { color: c.textPrimary }]}>{selectedProduct.name}</Text>
+                {selectedProduct.brand && (
+                  <Text style={[styles.detailBrand, { color: c.primary }]}>Brand: {selectedProduct.brand}</Text>
+                )}
 
-                {/* Price & Margin Matrix */}
-                <View style={[styles.pricingCard, { backgroundColor: c.primaryLight }]}>
-                  <View style={styles.priceCol}>
-                    <Text style={[styles.priceColLabel, { color: c.primary }]}>Sale Price</Text>
-                    <Text style={[styles.priceColVal, { color: c.primary }]}>
-                      ₹{parseFloat(String(selectedProduct.price || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </Text>
-                  </View>
-
-                  {selectedProduct.compare_at_price && (
-                    <View style={styles.priceCol}>
-                      <Text style={[styles.priceColLabel, { color: c.textMuted }]}>MRP</Text>
-                      <Text style={[styles.priceColVal, { color: c.textSecondary, textDecorationLine: 'line-through' }]}>
-                        ₹{parseFloat(String(selectedProduct.compare_at_price)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                {/* Price & Stock Matrix Grid */}
+                <View style={[styles.priceMatrixCard, { backgroundColor: theme.isDark ? '#0F172A' : '#F8FAFC', borderColor: c.border }]}>
+                  <View style={styles.priceMatrixRow}>
+                    <View style={styles.matrixCol}>
+                      <Text style={[styles.matrixLabel, { color: c.textMuted }]}>Sale Price</Text>
+                      <Text style={[styles.matrixVal, { color: c.primary }]}>
+                        ₹{parseFloat(String(selectedProduct.price || 0)).toFixed(2)}
                       </Text>
                     </View>
-                  )}
-
-                  {selectedProduct.purchase_cost && (
-                    <View style={styles.priceCol}>
-                      <Text style={[styles.priceColLabel, { color: c.success }]}>Cost Price</Text>
-                      <Text style={[styles.priceColVal, { color: c.success }]}>
-                        ₹{parseFloat(String(selectedProduct.purchase_cost)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Inventory & Specifications */}
-                <View style={styles.specRows}>
-                  <View style={styles.specRow}>
-                    <Text style={[styles.specLabel, { color: c.textMuted }]}>Stock Status:</Text>
-                    <Badge
-                      label={`${selectedProduct.stock || selectedProduct.stock_in_hand || 0} ${selectedProduct.unit || 'Units'}`}
-                      variant={(selectedProduct.stock || 0) > 0 ? 'success' : 'error'}
-                    />
-                  </View>
-
-                  {selectedProduct.sku && (
-                    <View style={styles.specRow}>
-                      <Text style={[styles.specLabel, { color: c.textMuted }]}>SKU Code:</Text>
-                      <Text style={[styles.specValue, { color: c.textPrimary }]}>{selectedProduct.sku}</Text>
-                    </View>
-                  )}
-
-                  {selectedProduct.barcode && (
-                    <View style={styles.specRow}>
-                      <Text style={[styles.specLabel, { color: c.textMuted }]}>Barcode:</Text>
-                      <View style={styles.barcodeRow}>
-                        <Barcode size={14} color={c.textPrimary} />
-                        <Text style={[styles.specValue, { color: c.textPrimary }]}>{selectedProduct.barcode}</Text>
+                    {selectedProduct.compare_at_price && (
+                      <View style={styles.matrixCol}>
+                        <Text style={[styles.matrixLabel, { color: c.textMuted }]}>MRP Price</Text>
+                        <Text style={[styles.matrixVal, { color: c.textSecondary, textDecorationLine: 'line-through' }]}>
+                          ₹{parseFloat(String(selectedProduct.compare_at_price)).toFixed(2)}
+                        </Text>
                       </View>
-                    </View>
-                  )}
+                    )}
+                    {selectedProduct.purchase_cost && (
+                      <View style={styles.matrixCol}>
+                        <Text style={[styles.matrixLabel, { color: c.textMuted }]}>Cost Price</Text>
+                        <Text style={[styles.matrixVal, { color: '#F59E0B' }]}>
+                          ₹{parseFloat(String(selectedProduct.purchase_cost)).toFixed(2)}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
 
-                  {selectedProduct.tax_rate !== undefined && (
-                    <View style={styles.specRow}>
-                      <Text style={[styles.specLabel, { color: c.textMuted }]}>GST / Tax Rate:</Text>
-                      <Text style={[styles.specValue, { color: c.textPrimary }]}>{selectedProduct.tax_rate || 0}%</Text>
+                  <View style={styles.matrixDivider} />
+
+                  <View style={styles.priceMatrixRow}>
+                    <View style={styles.matrixCol}>
+                      <Text style={[styles.matrixLabel, { color: c.textMuted }]}>Available Stock</Text>
+                      <Text style={[styles.matrixVal, { color: '#10B981' }]}>
+                        {selectedProduct.stock || 0} {selectedProduct.unit || 'Units'}
+                      </Text>
                     </View>
-                  )}
+                    <View style={styles.matrixCol}>
+                      <Text style={[styles.matrixLabel, { color: c.textMuted }]}>SKU Code</Text>
+                      <Text style={[styles.matrixVal, { color: c.textSecondary }]}>
+                        {selectedProduct.sku || 'N/A'}
+                      </Text>
+                    </View>
+                    <View style={styles.matrixCol}>
+                      <Text style={[styles.matrixLabel, { color: c.textMuted }]}>Barcode</Text>
+                      <Text style={[styles.matrixVal, { color: c.textSecondary }]}>
+                        {selectedProduct.barcode || 'N/A'}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
 
                 {/* Description */}
-                {selectedProduct.description ? (
+                {selectedProduct.description && (
                   <View style={styles.descSection}>
                     <Text style={[styles.descTitle, { color: c.textPrimary }]}>Description</Text>
-                    <Text style={[styles.descBody, { color: c.textSecondary }]}>{selectedProduct.description}</Text>
+                    <Text style={[styles.descText, { color: c.textSecondary }]}>{selectedProduct.description}</Text>
                   </View>
-                ) : null}
+                )}
 
-                {/* Actions */}
-                <View style={styles.modalActions}>
-                  <PrimaryButton
-                    title="Edit Product"
+                {/* Quick Action Footer */}
+                <View style={styles.detailActionsRow}>
+                  <TouchableOpacity
                     onPress={() => {
                       setDetailModalVisible(false);
                       handleOpenEdit(selectedProduct);
                     }}
-                    style={{ flex: 1 }}
-                  />
+                    style={[styles.detailEditBtn, { backgroundColor: c.primary }]}
+                    activeOpacity={0.85}
+                  >
+                    <Edit2 size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.detailEditBtnText}>Edit Product</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => handleDeleteProduct(selectedProduct)}
+                    style={[styles.detailDeleteBtn, { backgroundColor: theme.isDark ? '#1E293B' : '#FEE2E2', borderColor: '#EF4444' }]}
+                    activeOpacity={0.85}
+                  >
+                    <Trash2 size={16} color="#EF4444" />
+                  </TouchableOpacity>
                 </View>
               </ScrollView>
             )}
@@ -621,7 +706,9 @@ export const ProductsScreen: React.FC = () => {
         </View>
       </Modal>
 
-      {/* ── Comprehensive Add / Edit Product Modal ─────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {/* ── 4-TAB ADD / EDIT PRODUCT WIZARD MODAL ──────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
       <Modal
         visible={formModalVisible}
         animationType="slide"
@@ -630,388 +717,122 @@ export const ProductsScreen: React.FC = () => {
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1 }}
+          style={styles.modalOverlay}
         >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.formSheet, { backgroundColor: theme.isDark ? c.surface : '#FFFFFF', borderColor: c.border }]}>
-              <View style={styles.modalHeader}>
-                <View>
-                  <Text style={[theme.typography.h3, { color: c.textPrimary }]}>
-                    {formMode === 'add' ? 'Add New Product' : 'Edit Product'}
-                  </Text>
-                  <Text style={[theme.typography.caption, { color: c.textMuted }]}>
-                    Comprehensive Enterprise Catalog Specification
-                  </Text>
-                </View>
-                <TouchableOpacity onPress={() => setFormModalVisible(false)} style={styles.closeBtn}>
-                  <X size={20} color={c.textMuted} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Form Tabs */}
-              <View style={[styles.formTabBar, { backgroundColor: theme.isDark ? c.surfaceSecondary : '#EEF2FF' }]}>
-                {[
-                  { id: 'basic', label: 'Basic' },
-                  { id: 'pricing', label: 'Pricing (₹)' },
-                  { id: 'inventory', label: 'Stock & SKU' },
-                  { id: 'media', label: 'Media / Video' },
-                ].map((tb) => {
-                  const isActive = formTab === tb.id;
-                  return (
-                    <TouchableOpacity
-                      key={tb.id}
-                      onPress={() => setFormTab(tb.id as any)}
-                      style={[styles.formTabItem, isActive && [styles.formTabActive, { backgroundColor: c.primary }]]}
-                    >
-                      <Text style={[styles.formTabText, { color: isActive ? '#FFFFFF' : c.textMuted }]}>
-                        {tb.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                style={styles.formScroll}
-              >
-                {/* 1. Basic Tab */}
-                {formTab === 'basic' && (
-                  <View style={styles.tabContent}>
-                    <TextField label="Product Title *" placeholder="e.g. Royal Basmati Rice 5kg" value={name} onChangeText={setName} />
-                    <TextField label="Category" placeholder="e.g. Groceries, Electronics" value={category} onChangeText={setCategory} />
-                    <TextField label="Brand Name" placeholder="e.g. India Gate, Fortune" value={brand} onChangeText={setBrand} />
-                    <TextField label="Unit of Measure" placeholder="e.g. Pcs, Kg, Litre, Box" value={unit} onChangeText={setUnit} />
-                    <TextField label="Description" placeholder="Enter product specifications, features, packaging..." value={description} onChangeText={setDescription} multiline />
-                  </View>
-                )}
-
-                {/* 2. Pricing Tab */}
-                {formTab === 'pricing' && (
-                  <View style={styles.tabContent}>
-                    <TextField label="Retail Sale Price (₹) *" placeholder="e.g. 450.00" value={price} onChangeText={setPrice} keyboardType="decimal-pad" />
-                    <TextField label="MRP / Strikethrough Price (₹)" placeholder="e.g. 599.00" value={mrp} onChangeText={setMrp} keyboardType="decimal-pad" />
-                    <TextField label="Purchase / Cost Price (₹)" placeholder="e.g. 380.00" value={purchaseCost} onChangeText={setPurchaseCost} keyboardType="decimal-pad" />
-                    <TextField label="Wholesale Price (₹)" placeholder="e.g. 410.00" value={wholesalePrice} onChangeText={setWholesalePrice} keyboardType="decimal-pad" />
-                    <TextField label="GST / Tax Percentage (%)" placeholder="e.g. 18" value={taxRate} onChangeText={setTaxRate} keyboardType="number-pad" />
-                  </View>
-                )}
-
-                {/* 3. Inventory Tab */}
-                {formTab === 'inventory' && (
-                  <View style={styles.tabContent}>
-                    <TextField label="Available Stock Quantity *" placeholder="e.g. 50" value={stock} onChangeText={setStock} keyboardType="number-pad" />
-                    <TextField label="SKU (Stock Keeping Unit)" placeholder="e.g. SKU-RICE-5KG-01" value={sku} onChangeText={setSku} />
-                    <TextField label="Barcode (EAN-13 / UPC)" placeholder="e.g. 8901234567890" value={barcode} onChangeText={setBarcode} keyboardType="number-pad" />
-                  </View>
-                )}
-
-                {/* 4. Media & Video Tab (3 Separate Dedicated Upload & URL Sections) */}
-                {formTab === 'media' && (
-                  <View style={styles.tabContent}>
-                    {/* Media Input Format Selector */}
-                    <View style={styles.mediaFormatSelectorBar}>
-                      <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Product Media Manager</Text>
-                      <View style={styles.formatChipRow}>
-                        <TouchableOpacity
-                          onPress={() => setMediaInputMode('URL')}
-                          style={[
-                            styles.formatChip,
-                            {
-                              backgroundColor: mediaInputMode === 'URL' ? c.primary : theme.isDark ? c.surfaceSecondary : '#F1F5F9',
-                              borderColor: mediaInputMode === 'URL' ? c.primary : c.border,
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.formatChipText, { color: mediaInputMode === 'URL' ? '#FFF' : c.textSecondary }]}>🌐 URL Mode</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          onPress={() => setMediaInputMode('UPLOAD')}
-                          style={[
-                            styles.formatChip,
-                            {
-                              backgroundColor: mediaInputMode === 'UPLOAD' ? c.primary : theme.isDark ? c.surfaceSecondary : '#F1F5F9',
-                              borderColor: mediaInputMode === 'UPLOAD' ? c.primary : c.border,
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.formatChipText, { color: mediaInputMode === 'UPLOAD' ? '#FFF' : c.textSecondary }]}>📁 File Upload Mode</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    {/* ── SECTION 1: PRIMARY COVER IMAGE ──────────────────────────── */}
-                    <Card style={styles.mediaSectionCard}>
-                      <View style={styles.sectionHeaderRow}>
-                        <ImageIcon size={18} color={c.primary} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.mediaSectionHeading, { color: c.textPrimary }]}>1. Primary Cover Image</Text>
-                          <Text style={[styles.mediaSectionSub, { color: c.textMuted }]}>Main photo displayed on product listings & cards</Text>
-                        </View>
-                        {imageUrl ? <Badge label="MAIN SET" variant="success" size="sm" /> : null}
-                      </View>
-
-                      {imageUrl ? (
-                        <View style={[styles.primaryPreviewBox, { backgroundColor: theme.isDark ? c.surfaceSecondary : '#F8FAFC', borderColor: c.border }]}>
-                          <Image source={{ uri: resolveMediaUrl(imageUrl) || imageUrl }} style={styles.primaryPreviewImg} resizeMode="contain" />
-                          <TouchableOpacity onPress={() => setImageUrl('')} style={styles.clearMediaBtn}>
-                            <X size={12} color="#FFF" />
-                            <Text style={styles.clearMediaBtnText}>Clear Cover</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : null}
-
-                      {mediaInputMode === 'UPLOAD' ? (
-                        <TouchableOpacity
-                          onPress={() => {
-                            setUploadTarget('PRIMARY');
-                            setPickerInputText(imageUrl || '');
-                            setMediaPickerVisible(true);
-                          }}
-                          style={[styles.separateUploadBtn, { backgroundColor: c.primaryLight, borderColor: c.primary }]}
-                          activeOpacity={0.8}
-                        >
-                          <ImageIcon size={16} color={c.primary} />
-                          <Text style={[styles.separateUploadBtnText, { color: c.primary }]}>📁 Upload Primary Cover Image File</Text>
-                        </TouchableOpacity>
-                      ) : (
-                        <TextField
-                          label="Primary Image URL"
-                          placeholder="https://example.com/product-photo.jpg or /uploads/images/abc.jpg"
-                          value={imageUrl}
-                          onChangeText={setImageUrl}
-                        />
-                      )}
-                    </Card>
-
-                    {/* ── SECTION 2: ADDITIONAL GALLERY IMAGES ───────────────────── */}
-                    <Card style={styles.mediaSectionCard}>
-                      <View style={styles.sectionHeaderRow}>
-                        <Layers size={18} color={c.accent} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.mediaSectionHeading, { color: c.textPrimary }]}>2. Additional Gallery Images</Text>
-                          <Text style={[styles.mediaSectionSub, { color: c.textMuted }]}>Extra detail photos, packaging & alternate angles</Text>
-                        </View>
-                      </View>
-
-                      {/* Gallery Photo Thumbnails Grid */}
-                      {additionalImages ? (
-                        <View style={styles.galleryThumbGrid}>
-                          {additionalImages.split(',').map((s) => s.trim()).filter(Boolean).map((uri, idx) => (
-                            <View key={idx} style={[styles.galleryThumbCard, { borderColor: c.border }]}>
-                              <Image source={{ uri: resolveMediaUrl(uri) || uri }} style={styles.galleryThumbImg} resizeMode="cover" />
-                              <TouchableOpacity
-                                onPress={() => {
-                                  const list = additionalImages.split(',').map((s) => s.trim()).filter(Boolean);
-                                  list.splice(idx, 1);
-                                  setAdditionalImages(list.join(', '));
-                                }}
-                                style={styles.removeGalleryItemBtn}
-                              >
-                                <X size={12} color="#FFF" />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                onPress={() => {
-                                  // Set this gallery photo as main cover
-                                  const list = additionalImages.split(',').map((s) => s.trim()).filter(Boolean);
-                                  const oldMain = imageUrl;
-                                  setImageUrl(uri);
-                                  list.splice(idx, 1);
-                                  if (oldMain) list.push(oldMain);
-                                  setAdditionalImages(list.join(', '));
-                                }}
-                                style={styles.makeMainBtn}
-                              >
-                                <Text style={styles.makeMainBtnText}>Make Cover</Text>
-                              </TouchableOpacity>
-                            </View>
-                          ))}
-                        </View>
-                      ) : null}
-
-                      {mediaInputMode === 'UPLOAD' ? (
-                        <TouchableOpacity
-                          onPress={() => {
-                            setUploadTarget('GALLERY');
-                            setPickerInputText('');
-                            setMediaPickerVisible(true);
-                          }}
-                          style={[styles.separateUploadBtn, { backgroundColor: c.accentLight, borderColor: c.accent }]}
-                          activeOpacity={0.8}
-                        >
-                          <Plus size={16} color={c.accent} />
-                          <Text style={[styles.separateUploadBtnText, { color: c.accent }]}>➕ Upload Additional Gallery Photo File</Text>
-                        </TouchableOpacity>
-                      ) : (
-                        <TextField
-                          label="Additional Gallery URLs (Comma Separated)"
-                          placeholder="https://cdn.example.com/img1.jpg, https://cdn.example.com/img2.jpg"
-                          value={additionalImages}
-                          onChangeText={setAdditionalImages}
-                          multiline
-                        />
-                      )}
-                    </Card>
-
-                    {/* ── SECTION 3: PRODUCT DEMONSTRATION VIDEO ──────────────────── */}
-                    <Card style={styles.mediaSectionCard}>
-                      <View style={styles.sectionHeaderRow}>
-                        <Video size={18} color="#E11D48" />
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.mediaSectionHeading, { color: c.textPrimary }]}>3. Product Demonstration Video</Text>
-                          <Text style={[styles.mediaSectionSub, { color: c.textMuted }]}>Attach video demo, mp4 payload or stream link</Text>
-                        </View>
-                        {videoUrl ? <Badge label="VIDEO READY" variant="success" size="sm" /> : null}
-                      </View>
-
-                      {videoUrl ? (
-                        <View style={[styles.videoCardPreview, { backgroundColor: 'rgba(225,29,72,0.08)', borderColor: '#E11D48' }]}>
-                          <Video size={22} color="#E11D48" />
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.videoTitle, { color: '#E11D48' }]}>Linked Video Stream</Text>
-                            <Text style={[styles.videoSubText, { color: c.textMuted }]} numberOfLines={1}>{videoUrl}</Text>
-                          </View>
-                          <TouchableOpacity
-                            onPress={() => Linking.openURL(videoUrl).catch(() => Alert.alert('Video', 'Opening video link...'))}
-                            style={[styles.playVideoBtn, { backgroundColor: '#E11D48' }]}
-                          >
-                            <Text style={styles.playVideoBtnText}>▶ Play</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : null}
-
-                      {mediaInputMode === 'UPLOAD' ? (
-                        <TouchableOpacity
-                          onPress={() => {
-                            setUploadTarget('VIDEO');
-                            setPickerInputText(videoUrl || '');
-                            setMediaPickerVisible(true);
-                          }}
-                          style={[styles.separateUploadBtn, { backgroundColor: 'rgba(225,29,72,0.08)', borderColor: '#E11D48' }]}
-                          activeOpacity={0.8}
-                        >
-                          <Video size={16} color="#E11D48" />
-                          <Text style={[styles.separateUploadBtnText, { color: '#E11D48' }]}>🎬 Upload Product Video File</Text>
-                        </TouchableOpacity>
-                      ) : (
-                        <TextField
-                          label="Video Stream URL"
-                          placeholder="https://example.com/demo.mp4 or YouTube / Vimeo link"
-                          value={videoUrl}
-                          onChangeText={setVideoUrl}
-                        />
-                      )}
-                    </Card>
-                  </View>
-                )}
-              </ScrollView>
-
-              {/* Footer Submit */}
-              <View style={styles.formFooter}>
-                <PrimaryButton
-                  title={formMode === 'add' ? 'Publish Product to Catalog' : 'Save Changes'}
-                  onPress={handleSaveProduct}
-                  loading={submitting}
-                />
-              </View>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-      {/* ── Cross-Platform Media Upload & File Picker Sheet Modal (Android & iOS) ── */}
-      <Modal
-        visible={mediaPickerVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setMediaPickerVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.formSheet, { backgroundColor: theme.isDark ? c.surface : '#FFFFFF', borderColor: c.border }]}>
+          <View style={[styles.formSheet, { backgroundColor: theme.isDark ? '#0B0F19' : '#FFFFFF', borderColor: c.border }]}>
             <View style={styles.modalHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <ImageIcon size={20} color={c.primary} />
-                <Text style={[theme.typography.h3, { color: c.textPrimary }]}>
-                  {uploadTarget === 'PRIMARY' ? 'Upload Primary Cover Photo' : uploadTarget === 'GALLERY' ? 'Upload Additional Gallery Photo' : 'Upload Demonstration Video'}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setMediaPickerVisible(false)}>
-                <X size={22} color={c.textMuted} />
+              <Text style={[styles.detailHeading, { color: c.textPrimary }]}>
+                {formMode === 'add' ? 'Register New Product' : 'Edit Product'}
+              </Text>
+              <TouchableOpacity onPress={() => setFormModalVisible(false)} style={styles.closeBtn}>
+                <X size={20} color={c.textPrimary} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-              <Text style={[theme.typography.caption, { color: c.textSecondary, marginBottom: 8 }]}>
-                Enter or paste local device file path (`file:///...`), storage URI, or Base64 data string:
-              </Text>
-
-              <TextField
-                label="Local Device File URI / Storage Path"
-                placeholder="file:///storage/emulated/0/DCIM/Camera/photo.jpg or data:image/png;base64,..."
-                value={pickerInputText}
-                onChangeText={setPickerInputText}
-                multiline
-              />
-
-              {/* Sample Preset Presets Grid for Quick 1-Tap Attach */}
-              <Text style={[theme.typography.caption, { color: c.textSecondary, fontWeight: '700', marginTop: 12, marginBottom: 8 }]}>
-                ⚡ Or Select a Sample Preset Asset (1-Tap):
-              </Text>
-
-              <View style={styles.presetGrid}>
-                {[
-                  { name: 'Headphones', url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500' },
-                  { name: 'Smartwatch', url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500' },
-                  { name: 'Sneakers', url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500' },
-                  { name: 'Backpack', url: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=500' },
-                  { name: 'Camera', url: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=500' },
-                  { name: 'Demo Video', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' },
-                ].map((preset, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    onPress={() => setPickerInputText(preset.url)}
+            {/* Form Step Tabs */}
+            <View style={styles.tabBar}>
+              {(['basic', 'pricing', 'inventory', 'media'] as const).map((tab) => (
+                <TouchableOpacity
+                  key={tab}
+                  onPress={() => setFormTab(tab)}
+                  style={[
+                    styles.tabItem,
+                    {
+                      borderBottomColor: formTab === tab ? c.primary : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
                     style={[
-                      styles.presetChip,
+                      styles.tabText,
                       {
-                        backgroundColor: pickerInputText === preset.url ? c.primary : theme.isDark ? c.surfaceSecondary : '#F1F5F9',
-                        borderColor: pickerInputText === preset.url ? c.primary : c.border,
+                        color: formTab === tab ? c.primary : c.textMuted,
+                        fontWeight: formTab === tab ? '800' : '600',
                       },
                     ]}
                   >
-                    <Text style={[styles.presetChipText, { color: pickerInputText === preset.url ? '#FFF' : c.textSecondary }]}>
-                      {preset.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                    {tab.toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScroll}>
+              {/* Tab 1: Basic */}
+              {formTab === 'basic' && (
+                <View style={styles.tabContent}>
+                  <TextField label="Product Name *" placeholder="e.g. Basmati Rice 5kg" value={name} onChangeText={setName} />
+                  <TextField label="Category" placeholder="e.g. Groceries" value={category} onChangeText={setCategory} />
+                  <TextField label="Brand / Manufacturer" placeholder="e.g. Royal Harvest" value={brand} onChangeText={setBrand} />
+                  <TextField label="Unit of Measure" placeholder="e.g. Pcs, Kg, Ltr, Box" value={unit} onChangeText={setUnit} />
+                  <TextField label="Product Description" placeholder="Full product details and specifications..." value={description} onChangeText={setDescription} multiline numberOfLines={3} />
+                </View>
+              )}
+
+              {/* Tab 2: Pricing */}
+              {formTab === 'pricing' && (
+                <View style={styles.tabContent}>
+                  <TextField label="Retail Sale Price (₹) *" placeholder="e.g. 450.00" value={price} onChangeText={setPrice} keyboardType="decimal-pad" />
+                  <TextField label="MRP / Strikethrough Price (₹)" placeholder="e.g. 599.00" value={mrp} onChangeText={setMrp} keyboardType="decimal-pad" />
+                  <TextField label="Purchase / Cost Price (₹)" placeholder="e.g. 380.00" value={purchaseCost} onChangeText={setPurchaseCost} keyboardType="decimal-pad" />
+                  <TextField label="Wholesale Price (₹)" placeholder="e.g. 410.00" value={wholesalePrice} onChangeText={setWholesalePrice} keyboardType="decimal-pad" />
+                  <TextField label="GST / Tax Rate (%)" placeholder="e.g. 18" value={taxRate} onChangeText={setTaxRate} keyboardType="number-pad" />
+                </View>
+              )}
+
+              {/* Tab 3: Inventory */}
+              {formTab === 'inventory' && (
+                <View style={styles.tabContent}>
+                  <TextField label="Available Stock Quantity *" placeholder="e.g. 50" value={stock} onChangeText={setStock} keyboardType="number-pad" />
+                  <TextField label="SKU (Stock Keeping Unit)" placeholder="e.g. SKU-RICE-5KG-01" value={sku} onChangeText={setSku} />
+                  <View style={styles.formBarcodeRow}>
+                    <View style={{ flex: 1 }}>
+                      <TextField label="Barcode (EAN-13 / UPC)" placeholder="e.g. 8901234567890" value={barcode} onChangeText={setBarcode} keyboardType="number-pad" />
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setScannerTarget('form');
+                        setScannerModalVisible(true);
+                      }}
+                      style={[styles.formBarcodeScanBtn, { backgroundColor: theme.isDark ? '#1E293B' : '#EEF2FF', borderColor: c.primary }]}
+                      activeOpacity={0.7}
+                    >
+                      <Barcode size={18} color={c.primary} />
+                      <Text style={[styles.formBarcodeScanText, { color: c.primary }]}>Scan</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {/* Tab 4: Media */}
+              {formTab === 'media' && (
+                <View style={styles.tabContent}>
+                  <TextField label="Primary Cover Image URL" placeholder="https://images.unsplash.com/photo-..." value={imageUrl} onChangeText={setImageUrl} />
+                  <TextField label="Additional Image URLs (Comma Separated)" placeholder="https://..., https://..." value={additionalImages} onChangeText={setAdditionalImages} multiline numberOfLines={2} />
+                  <TextField label="Product Demo Video URL" placeholder="https://example.com/demo.mp4" value={videoUrl} onChangeText={setVideoUrl} />
+                </View>
+              )}
+
+              <View style={styles.formActionsRow}>
+                <PrimaryButton
+                  title={submitting ? 'Saving...' : formMode === 'add' ? 'Create & List Product' : 'Save Changes'}
+                  onPress={handleSaveProduct}
+                  disabled={submitting}
+                />
               </View>
-
-              <View style={{ height: 16 }} />
-
-              <PrimaryButton
-                title="Attach Selected Media File"
-                onPress={() => {
-                  if (!pickerInputText.trim()) {
-                    Alert.alert('Required', 'Please enter a valid file path or select a preset.');
-                    return;
-                  }
-                  const val = pickerInputText.trim();
-                  if (uploadTarget === 'PRIMARY') {
-                    setImageUrl(val);
-                  } else if (uploadTarget === 'GALLERY') {
-                    const list = additionalImages.split(',').map(s => s.trim()).filter(Boolean);
-                    list.push(val);
-                    setAdditionalImages(list.join(', '));
-                  } else {
-                    setVideoUrl(val);
-                  }
-                  setMediaPickerVisible(false);
-                }}
-              />
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
+
+      {/* Barcode & QR Scanner Modal */}
+      <BarcodeScannerModal
+        visible={scannerModalVisible}
+        onClose={() => setScannerModalVisible(false)}
+        onScan={handleProductBarcodeScanned}
+        title={scannerTarget === 'search' ? 'Search Catalog by Barcode' : 'Scan Product Barcode'}
+        subtitle="Align barcode within frame to auto-detect"
+      />
     </View>
   );
 };
@@ -1033,13 +854,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  kpiContainer: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 12,
+  },
+  kpiBox: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  kpiValue: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  kpiLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     borderRadius: 14,
     borderWidth: 1,
-    height: 44,
+    height: 46,
     marginBottom: 10,
     gap: 8,
   },
@@ -1047,6 +890,44 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     paddingVertical: 0,
+  },
+  scanTriggerBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 8,
+  },
+  stockFilterScroll: {
+    gap: 6,
+  },
+  stockChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  stockChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  viewModeToggle: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 2,
+  },
+  viewModeBtn: {
+    padding: 6,
+    borderRadius: 8,
   },
   filterScroll: {
     flexGrow: 0,
@@ -1072,14 +953,14 @@ const styles = StyleSheet.create({
   // Detail Sheet
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     justifyContent: 'flex-end',
   },
   detailSheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    borderTopWidth: 1,
-    padding: 22,
+    borderTopWidth: 1.5,
+    padding: 20,
     maxHeight: '88%',
   },
   modalHeader: {
@@ -1088,506 +969,166 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 14,
   },
+  detailHeading: {
+    fontSize: 17,
+    fontWeight: '900',
+  },
   closeBtn: {
     padding: 4,
   },
   galleryWrapper: {
     marginBottom: 14,
-  },
-  mainImageBox: {
-    width: '100%',
-    height: 190,
-    borderRadius: 18,
-    overflow: 'hidden',
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  mainImage: {
+  galleryMainImg: {
     width: '100%',
-    height: '100%',
+    height: 180,
+    borderRadius: 16,
   },
-  noImageBox: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  noImageText: {
-    fontSize: 12,
-    marginTop: 6,
-  },
-  thumbStrip: {
+  thumbScroll: {
     flexDirection: 'row',
     marginTop: 8,
-    gap: 8,
+    gap: 6,
   },
-  thumbBox: {
+  thumbBtn: {
     width: 48,
     height: 48,
     borderRadius: 10,
     borderWidth: 2,
     overflow: 'hidden',
-    marginRight: 8,
+    marginRight: 6,
   },
-  thumbImage: {
+  thumbImg: {
     width: '100%',
     height: '100%',
   },
-  videoLinkBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 12,
-    gap: 6,
+  detailTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  detailBrand: {
+    fontSize: 12,
+    fontWeight: '800',
     marginBottom: 12,
   },
-  videoLinkText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  pricingCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    padding: 14,
+  priceMatrixCard: {
     borderRadius: 16,
-    marginBottom: 14,
+    borderWidth: 1,
+    padding: 14,
+    marginVertical: 12,
   },
-  priceCol: {
-    alignItems: 'center',
-  },
-  priceColLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  priceColVal: {
-    fontSize: 16,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  specRows: {
-    gap: 8,
-    marginBottom: 14,
-  },
-  specRow: {
+  priceMatrixRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  matrixCol: {
     alignItems: 'center',
+    flex: 1,
   },
-  specLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  specValue: {
-    fontSize: 12,
+  matrixLabel: {
+    fontSize: 10,
     fontWeight: '700',
+    marginBottom: 2,
   },
-  barcodeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  matrixVal: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  matrixDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginVertical: 10,
   },
   descSection: {
-    marginBottom: 16,
+    marginVertical: 10,
   },
   descTitle: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     marginBottom: 4,
   },
-  descBody: {
+  descText: {
     fontSize: 12,
     lineHeight: 18,
   },
-  modalActions: {
+  detailActionsRow: {
     flexDirection: 'row',
-    marginTop: 6,
-    marginBottom: 20,
+    gap: 10,
+    marginTop: 16,
+  },
+  detailEditBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  detailEditBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  detailDeleteBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   // Form Sheet
   formSheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    borderTopWidth: 1,
-    padding: 22,
+    borderTopWidth: 1.5,
+    padding: 20,
     maxHeight: '90%',
   },
-  formTabBar: {
+  tabBar: {
     flexDirection: 'row',
-    borderRadius: 12,
-    padding: 3,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
     marginBottom: 14,
   },
-  formTabItem: {
+  tabItem: {
     flex: 1,
+    paddingVertical: 10,
     alignItems: 'center',
-    paddingVertical: 7,
-    borderRadius: 9,
+    borderBottomWidth: 2,
   },
-  formTabActive: {
-    elevation: 2,
-  },
-  formTabText: {
+  tabText: {
     fontSize: 11,
-    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   formScroll: {
-    maxHeight: 380,
+    paddingBottom: 20,
   },
   tabContent: {
-    gap: 8,
-  },
-  mediaUploadRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginVertical: 4,
-  },
-  uploadMediaBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 9,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    gap: 6,
-  },
-  uploadMediaText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  previewBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 8,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.03)',
-    marginVertical: 4,
-  },
-  previewThumb: {
-    width: 42,
-    height: 42,
-    borderRadius: 8,
-  },
-  previewText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  divider: {
-    height: 1,
-    marginVertical: 10,
-  },
-  formFooter: {
-    marginTop: 14,
-    marginBottom: 10,
-  },
-  mediaFormatSelectorBar: {
-    marginBottom: 6,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 6,
-  },
-  formatChipRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  formatChip: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 7,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  formatChipText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  mediaSectionCard: {
-    padding: 12,
-    marginVertical: 4,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  mediaSectionHeading: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  mediaSectionSub: {
-    fontSize: 10,
-    marginTop: 1,
-  },
-  primaryPreviewBox: {
-    width: '100%',
-    height: 140,
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  primaryPreviewImg: {
-    width: '100%',
-    height: '100%',
-  },
-  clearMediaBtn: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: 'rgba(239,68,68,0.9)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 4,
   },
-  clearMediaBtnText: {
-    color: '#FFF',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  separateUploadBtn: {
+  formBarcodeRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 6,
-    marginVertical: 4,
-  },
-  separateUploadBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  galleryThumbGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'flex-end',
     gap: 8,
-    marginBottom: 8,
   },
-  galleryThumbCard: {
-    width: 74,
-    height: 74,
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  galleryThumbImg: {
-    width: '100%',
-    height: '100%',
-  },
-  removeGalleryItemBtn: {
-    position: 'absolute',
-    top: 3,
-    right: 3,
-    backgroundColor: 'rgba(239,68,68,0.9)',
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  makeMainBtn: {
-    position: 'absolute',
-    bottom: 2,
-    left: 2,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  makeMainBtnText: {
-    color: '#FFF',
-    fontSize: 7,
-    fontWeight: '800',
-  },
-  videoCardPreview: {
+  formBarcodeScanBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 10,
-    marginBottom: 8,
-  },
-  videoTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  videoSubText: {
-    fontSize: 10,
-    marginTop: 1,
-  },
-  playVideoBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  playVideoBtnText: {
-    color: '#FFF',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  mediaModeSelector: {
-    flexDirection: 'row',
-    gap: 8,
-    marginVertical: 6,
-  },
-  mediaModeBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 9,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 6,
-  },
-  mediaModeText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  responsiveMediaCard: {
-    padding: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: 'center',
-    marginVertical: 4,
-  },
-  responsiveMediaPreview: {
-    width: '100%',
-    height: 140,
-    borderRadius: 10,
-  },
-  mediaMetaBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 6,
-  },
-  mediaMetaText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  videoPreviewCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 10,
-    marginTop: 4,
-  },
-  videoPreviewTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  videoPreviewSub: {
-    fontSize: 10,
-    marginTop: 1,
-  },
-  uploadDropzoneLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  dropzoneBox: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    gap: 4,
-  },
-  dropzoneTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  dropzoneSub: {
-    fontSize: 10,
-    textAlign: 'center',
-  },
-  browseBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 10,
-    marginTop: 8,
-    gap: 4,
-  },
-  browseBtnText: {
-    color: '#FFF',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  uploadedGalleryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
-  },
-  uploadedImageCard: {
-    width: 68,
-    height: 68,
-    borderRadius: 12,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  uploadedImgThumb: {
-    width: '100%',
-    height: '100%',
-  },
-  removeMediaBtn: {
-    position: 'absolute',
-    top: 3,
-    right: 3,
-    backgroundColor: 'rgba(239,68,68,0.85)',
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryBadgeTag: {
-    position: 'absolute',
-    bottom: 2,
-    left: 2,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  primaryBadgeText: {
-    color: '#FFF',
-    fontSize: 7,
-    fontWeight: '800',
-  },
-  presetGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginVertical: 4,
-  },
-  presetChip: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
     borderWidth: 1,
+    marginBottom: 12,
+    gap: 6,
   },
-  presetChipText: {
-    fontSize: 11,
-    fontWeight: '700',
+  formBarcodeScanText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  formActionsRow: {
+    marginTop: 16,
   },
 });

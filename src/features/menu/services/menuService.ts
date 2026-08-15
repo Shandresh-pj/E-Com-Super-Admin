@@ -37,7 +37,7 @@ export const BACKEND_MENUS_CATALOG: MenuItem[] = [
   { id: 31, name: 'Standard Checkout', path: '/checkout', icon: 'credit-card', isActive: true, category: 'Commerce & Inventory', permissions: [] },
 
   // ── Operations & Outlets ───────────────────────────────
-  { id: 2, name: 'Company Branches', path: '/branch', icon: 'store', isActive: true, category: 'Operations & Outlets', permissions: [] },
+  { id: 2, name: 'Branches', path: '/branch', icon: 'store', isActive: true, category: 'Operations & Outlets', permissions: [] },
   { id: 3, name: 'Staff & Workforce', path: '/employees', icon: 'users', isActive: true, category: 'Operations & Outlets', permissions: [] },
   { id: 16, name: 'Attendance Shifts', path: '/attendance', icon: 'calendar', isActive: true, category: 'Operations & Outlets', permissions: [] },
   { id: 50, name: 'Shifts & Schedules', path: '/shifts', icon: 'schedule', isActive: true, category: 'Operations & Outlets', permissions: [] },
@@ -73,7 +73,7 @@ export const BACKEND_MENUS_CATALOG: MenuItem[] = [
   { id: 15, name: 'Notification Alerts', path: '/alerts', icon: 'bell', isActive: true, category: 'Collaboration & Events', permissions: [] },
 
   // ── Executive Security & Governance ───────────────────
-  { id: 1, name: 'Admin Overview', path: '/admin', icon: 'shield', isActive: true, category: 'Executive Security', permissions: [] },
+  { id: 1, name: 'Admin', path: '/admin', icon: 'shield', isActive: true, category: 'Executive Security', permissions: [] },
   { id: 4, name: 'Role Access Matrix', path: '/role-access', icon: 'shield-check', isActive: true, category: 'Executive Security', permissions: [] },
   { id: 5, name: 'Roles Management', path: '/roles', icon: 'users', isActive: true, category: 'Executive Security', permissions: [] },
   { id: 12, name: 'System Audit Logs', path: '/audit-logs', icon: 'clipboard-list', isActive: true, category: 'Executive Security', permissions: [] },

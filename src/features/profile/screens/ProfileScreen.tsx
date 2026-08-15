@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,15 +12,14 @@ import {
   Platform,
   Animated,
   useWindowDimensions,
-  Linking,
+  Clipboard,
 } from 'react-native';
 import { ScreenContainer } from '../../../components/common/ScreenContainer';
 import { Header } from '../../../components/common/Header';
 import { Card } from '../../../components/common/Card';
-import { Badge } from '../../../components/common/Badge';
 import { TextField } from '../../../components/inputs/TextField';
 import { PrimaryButton } from '../../../components/buttons/PrimaryButton';
-import { useAuthStore } from '../../../store/authStore';
+import { useAuthStore, UserProfile } from '../../../store/authStore';
 import { useThemeStore, ThemeMode } from '../../../store/themeStore';
 import { PermissionService, PermissionStatus } from '../../../security/permissionService';
 import {
@@ -52,12 +51,21 @@ import {
   Crown,
   ChevronRight,
   HardDrive,
-  Aperture,
   FolderOpen,
-  RefreshCw,
   Zap,
-  Layers,
+  Shield,
+  Copy,
+  Briefcase,
+  BadgeCheck,
+  ShieldAlert,
+  FileText,
+  Mail,
+  Award,
+  ArrowRight,
+  ArrowLeft,
 } from 'lucide-react-native';
+import { ProfileCompletionWidget } from '../components/ProfileCompletionWidget';
+import { calculateProfileCompletion } from '../utils/profileCompletion';
 
 // ── 3D Anime & Manga Hero Presets ─────────────────────────────────────────────
 const ANIME_AVATAR_PRESETS = [
@@ -210,8 +218,9 @@ export const ProfileScreen: React.FC = () => {
 
   // Edit Profile Form State
   const [editProfileVisible, setEditProfileVisible] = useState(false);
+  const [activeStep, setActiveStep] = useState<number>(1);
   const [editName, setEditName] = useState(user?.name || '');
-  const [editPhone, setEditPhone] = useState(user?.phone || '');
+  const [editPhone, setEditPhone] = useState(user?.phone || user?.mobilenumber || '');
   const [editAvatar, setEditAvatar] = useState(user?.avatar || ANIME_AVATAR_PRESETS[0].url);
   const [editDepartment, setEditDepartment] = useState(user?.department || '');
   const [editStaffId, setEditStaffId] = useState(user?.staffId || '');
@@ -222,6 +231,20 @@ export const ProfileScreen: React.FC = () => {
   const [editBio, setEditBio] = useState(user?.bio || '');
   const [savingProfile, setSavingProfile] = useState(false);
 
+  // Jump to specific step when clicking a pending item
+  const openStepForSection = (sectionKey?: string) => {
+    if (sectionKey === 'department' || sectionKey === 'staffId' || sectionKey === 'officeBranch') {
+      setActiveStep(2);
+    } else if (sectionKey === 'phone' || sectionKey === 'emergencyContact' || sectionKey === 'email') {
+      setActiveStep(3);
+    } else if (sectionKey === 'address' || sectionKey === 'cityStatePincode') {
+      setActiveStep(4);
+    } else {
+      setActiveStep(1);
+    }
+    setEditProfileVisible(true);
+  };
+
   // Avatar Studio Modal State
   const [avatarStudioVisible, setAvatarStudioVisible] = useState(false);
   const [activeStudioTab, setActiveStudioTab] = useState<'anime' | 'cartoon' | 'storage'>('anime');
@@ -229,7 +252,6 @@ export const ProfileScreen: React.FC = () => {
   // Camera Viewfinder Modal State
   const [cameraModalVisible, setCameraModalVisible] = useState(false);
   const [selectedLensIndex, setSelectedLensIndex] = useState(0);
-  const [flashActive, setFlashActive] = useState(false);
   const [capturingShutter, setCapturingShutter] = useState(false);
   const shutterAnim = useRef(new Animated.Value(0)).current;
 
@@ -246,14 +268,46 @@ export const ProfileScreen: React.FC = () => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Fetch live fresh profile from Backend API
+  const fetchFreshProfile = async () => {
+    if (!user?.id) return;
+    try {
+      const response = await axiosClient.get(ENDPOINTS.PROFILE_BY_ID(user.id));
+      if (response?.data?.success && response.data.data) {
+        const fresh = response.data.data;
+        useAuthStore.getState().updateUserProfile({
+          name: fresh.name || user.name,
+          email: fresh.email || user.email,
+          phone: fresh.mobilenumber || user.phone || user.mobilenumber,
+          mobilenumber: fresh.mobilenumber || user.mobilenumber,
+          avatar: fresh.image || user.avatar,
+          address: fresh.address || user.address,
+          userType: fresh.userType || user.userType,
+          isActive: fresh.status === 'ACTIVE' || user.isActive,
+        });
+      }
+    } catch {
+      // Fallback gracefully to existing store state
+    }
+  };
+
+  const handlePullToRefresh = async () => {
+    setIsRefreshing(true);
+    await Promise.all([fetchFreshProfile(), refreshPermissions()]);
+    setIsRefreshing(false);
+    showToast('Profile data refreshed from cloud');
+  };
 
   // Sync state on user profile change
   useEffect(() => {
     refreshPermissions();
+    fetchFreshProfile();
     NotificationService.getSelectedTone().then(setSelectedTone);
     if (user) {
       if (user.name) setEditName(user.name);
-      if (user.phone) setEditPhone(user.phone);
+      if (user.phone || user.mobilenumber) setEditPhone(user.phone || user.mobilenumber || '');
       if (user.avatar) setEditAvatar(user.avatar);
       if (user.address) setEditAddress(user.address);
       if (user.department) setEditDepartment(user.department);
@@ -263,15 +317,62 @@ export const ProfileScreen: React.FC = () => {
       if (user.cityStatePincode) setEditCityState(user.cityStatePincode);
       if (user.bio) setEditBio(user.bio);
     }
+  }, [user?.id]);
+
+  // Real-time calculation for in-modal live percentage
+  const draftUser: Partial<UserProfile> = useMemo(() => {
+    return {
+      ...user,
+      name: editName,
+      phone: editPhone,
+      mobilenumber: editPhone,
+      avatar: editAvatar,
+      department: editDepartment,
+      staffId: editStaffId,
+      emergencyContact: editEmergencyPhone,
+      officeBranch: editOfficeBranch,
+      address: editAddress,
+      cityStatePincode: editCityState,
+      bio: editBio,
+    };
+  }, [
+    user,
+    editName,
+    editPhone,
+    editAvatar,
+    editDepartment,
+    editStaffId,
+    editEmergencyPhone,
+    editOfficeBranch,
+    editAddress,
+    editCityState,
+    editBio,
+  ]);
+
+  const liveDraftCompletion = useMemo(() => {
+    return calculateProfileCompletion(draftUser);
+  }, [draftUser]);
+
+  const activeUserCompletion = useMemo(() => {
+    return calculateProfileCompletion(user);
   }, [user]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     Animated.sequence([
       Animated.timing(toastAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
-      Animated.delay(2000),
+      Animated.delay(2200),
       Animated.timing(toastAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
     ]).start(() => setToastMessage(null));
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    try {
+      Clipboard.setString(text);
+      showToast(`${label} copied to clipboard`);
+    } catch {
+      showToast(`Copied ${label}`);
+    }
   };
 
   const refreshPermissions = async () => {
@@ -291,7 +392,7 @@ export const ProfileScreen: React.FC = () => {
     setEditAvatar(avatarUrl);
     useAuthStore.getState().updateUserProfile({ avatar: avatarUrl });
     setAvatarStudioVisible(false);
-    showToast(`Avatar set to ${avatarName || 'selected preset'}`);
+    showToast(`Avatar set to ${avatarName || 'selected character'}`);
   };
 
   // Open live camera viewfinder directly
@@ -314,7 +415,7 @@ export const ProfileScreen: React.FC = () => {
       setCapturingShutter(false);
       setCameraModalVisible(false);
       setAvatarStudioVisible(false);
-      
+
       const capturedAvatar = ALL_PRESETS[selectedLensIndex % ALL_PRESETS.length].url;
       setEditAvatar(capturedAvatar);
       useAuthStore.getState().updateUserProfile({ avatar: capturedAvatar });
@@ -326,12 +427,6 @@ export const ProfileScreen: React.FC = () => {
 
       showToast('Camera snapshot captured & profile updated');
     });
-  };
-
-  // Flip viewfinder character lens
-  const handleFlipLens = () => {
-    setSelectedLensIndex((prev) => (prev + 1) % ALL_PRESETS.length);
-    showToast(`Lens switched to ${ALL_PRESETS[(selectedLensIndex + 1) % ALL_PRESETS.length].name}`);
   };
 
   // Request Storage permission
@@ -365,7 +460,7 @@ export const ProfileScreen: React.FC = () => {
 
   const handleSaveProfile = async () => {
     if (!editName.trim()) {
-      Alert.alert('Required', 'Please enter your full display name.');
+      Alert.alert('Required', 'Please enter your full legal display name.');
       return;
     }
     if (!user?.id) {
@@ -393,6 +488,7 @@ export const ProfileScreen: React.FC = () => {
       useAuthStore.getState().updateUserProfile({
         name: editName,
         phone: editPhone,
+        mobilenumber: editPhone,
         avatar: editAvatar,
         department: editDepartment,
         staffId: editStaffId,
@@ -404,12 +500,17 @@ export const ProfileScreen: React.FC = () => {
       });
 
       setEditProfileVisible(false);
-      showToast('Profile details updated successfully');
+      showToast(
+        liveDraftCompletion.score === 100
+          ? '🎉 Profile 100% Completed! Master Executive unlocked.'
+          : `Profile updated (${liveDraftCompletion.score}% complete)`
+      );
     } catch (err: any) {
       // Offline fallback
       useAuthStore.getState().updateUserProfile({
         name: editName,
         phone: editPhone,
+        mobilenumber: editPhone,
         avatar: editAvatar,
         department: editDepartment,
         staffId: editStaffId,
@@ -464,48 +565,71 @@ export const ProfileScreen: React.FC = () => {
 
   const displayName = user?.name || (user?.email ? user.email.split('@')[0] : 'Administrator');
   const userAvatar = user?.avatar || editAvatar || ANIME_AVATAR_PRESETS[0].url;
-  const currentLensAvatar = ALL_PRESETS[selectedLensIndex % ALL_PRESETS.length];
+  const staffCode = user?.staffId || `EMP-${user?.id || '001'}`;
 
   return (
-    <ScreenContainer scrollable={true} contentContainerStyle={styles.screenScrollContent}>
+    <ScreenContainer
+      scrollable={true}
+      refreshing={isRefreshing}
+      onRefresh={handlePullToRefresh}
+      contentContainerStyle={styles.screenScrollContent}
+    >
       <Header
         title="Account Profile"
-        subtitle="Enterprise Identity & System Preferences"
+        subtitle="Identity & Security Clearance"
         rightAction={
           <AnimatedPressable
-            onPress={() => setEditProfileVisible(true)}
+            onPress={() => openStepForSection('name')}
             style={[styles.editProfileBtn, { backgroundColor: c.primaryLight, borderColor: c.primary }]}
           >
-            <Edit3 size={15} color={c.primary} strokeWidth={2.2} />
+            <Edit3 size={14} color={c.primary} strokeWidth={2.2} />
             <Text style={[styles.editProfileBtnText, { color: c.primary }]}>Edit Profile</Text>
           </AnimatedPressable>
         }
       />
 
-      {/* ── Ultra-Clean Executive Identity Card (Only Useful Data) ──── */}
+      {/* ── 1. ULTRA-PREMIUM EXECUTIVE IDENTITY HERO CARD ──────────── */}
       <View
         style={[
           styles.heroCardContainer,
           {
             backgroundColor: theme.isDark ? '#0F172A' : '#FFFFFF',
-            borderColor: theme.isDark ? '#1E293B' : '#E2E8F0',
-            shadowColor: theme.isDark ? '#000000' : c.primary,
+            borderColor: activeUserCompletion.score === 100
+              ? 'rgba(16, 185, 129, 0.5)'
+              : theme.isDark
+              ? '#1E293B'
+              : '#E2E8F0',
+            shadowColor: activeUserCompletion.level.color,
           },
         ]}
       >
         <View style={styles.heroMainRow}>
-          {/* Avatar with Status Ring & Quick Direct Camera Action */}
+          {/* Avatar with Completion Ring & Camera Quick Trigger */}
           <View style={styles.avatarHeroWrapper}>
             <View
               style={[
                 styles.avatarHeroBox,
                 {
                   backgroundColor: theme.isDark ? '#1E293B' : '#EEF2FF',
-                  borderColor: c.primary,
+                  borderColor: activeUserCompletion.level.color,
                 },
               ]}
             >
               <Image source={{ uri: userAvatar }} style={styles.avatarHeroImg} />
+            </View>
+
+            {/* Glowing completion mini pill */}
+            <View
+              style={[
+                styles.avatarScoreTag,
+                {
+                  backgroundColor: activeUserCompletion.level.color,
+                },
+              ]}
+            >
+              <Text style={styles.avatarScoreTagText}>
+                {activeUserCompletion.score}%
+              </Text>
             </View>
 
             <TouchableOpacity
@@ -513,39 +637,56 @@ export const ProfileScreen: React.FC = () => {
               style={[styles.avatarEditBadge, { backgroundColor: c.primary }]}
               activeOpacity={0.8}
             >
-              <Camera size={13} color="#FFFFFF" strokeWidth={2.5} />
+              <Camera size={12} color="#FFFFFF" strokeWidth={2.5} />
             </TouchableOpacity>
           </View>
 
-          {/* Useful User Identity Details */}
+          {/* Identity Details */}
           <View style={styles.heroDetails}>
             <View style={styles.nameVerifiedRow}>
               <Text style={[styles.heroName, { color: c.textPrimary }]} numberOfLines={1}>
                 {displayName}
               </Text>
-              <View style={[styles.verifiedBadge, { backgroundColor: c.primary }]}>
-                <Check size={10} color="#FFFFFF" strokeWidth={3} />
+              <View style={[styles.verifiedBadge, { backgroundColor: activeUserCompletion.level.color }]}>
+                {activeUserCompletion.score === 100 ? (
+                  <Crown size={10} color="#FFFFFF" strokeWidth={3} />
+                ) : (
+                  <Check size={10} color="#FFFFFF" strokeWidth={3} />
+                )}
               </View>
             </View>
 
-            <Text style={[styles.heroEmail, { color: c.textMuted }]} numberOfLines={1}>
-              {user?.email || 'admin@svkecom.pro'}
-            </Text>
+            <TouchableOpacity
+              onPress={() => copyToClipboard(user?.email || 'admin@svkecom.pro', 'Email')}
+              style={styles.heroEmailRow}
+              activeOpacity={0.7}
+            >
+              <Mail size={12} color={c.textMuted} style={{ marginRight: 4 }} />
+              <Text style={[styles.heroEmail, { color: c.textMuted }]} numberOfLines={1}>
+                {user?.email || 'admin@svkecom.pro'}
+              </Text>
+              <Copy size={10} color={c.textMuted} style={{ marginLeft: 4 }} />
+            </TouchableOpacity>
 
-            {user?.phone ? (
-              <View style={styles.heroPhoneRow}>
-                <Phone size={12} color={c.textSecondary} />
+            {(user?.phone || user?.mobilenumber) ? (
+              <TouchableOpacity
+                onPress={() => copyToClipboard(user.phone || user.mobilenumber || '', 'Phone')}
+                style={styles.heroPhoneRow}
+                activeOpacity={0.7}
+              >
+                <Phone size={11} color={c.textSecondary} style={{ marginRight: 4 }} />
                 <Text style={[styles.heroPhone, { color: c.textSecondary }]} numberOfLines={1}>
-                  {user.phone}
+                  {user.phone || user.mobilenumber}
                 </Text>
-              </View>
+                <Copy size={10} color={c.textMuted} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
             ) : null}
           </View>
         </View>
 
         <View style={[styles.divider, { backgroundColor: theme.isDark ? '#1E293B' : '#E2E8F0' }]} />
 
-        {/* Useful Executive Meta Row: Role & Assigned Branch */}
+        {/* Executive Meta Badges */}
         <View style={styles.metaRow}>
           <View style={styles.metaItem}>
             <Text style={[styles.metaLabel, { color: c.textMuted }]}>ROLE CLEARANCE</Text>
@@ -558,10 +699,25 @@ export const ProfileScreen: React.FC = () => {
           </View>
 
           <View style={styles.metaItem}>
-            <Text style={[styles.metaLabel, { color: c.textMuted }]}>OFFICE BRANCH</Text>
-            <View style={styles.branchRow}>
-              <Building2 size={13} color={c.textPrimary} style={{ marginRight: 4 }} />
+            <Text style={[styles.metaLabel, { color: c.textMuted }]}>STAFF ID</Text>
+            <TouchableOpacity
+              onPress={() => copyToClipboard(staffCode, 'Staff ID')}
+              style={[styles.staffIdBadge, { backgroundColor: theme.isDark ? '#1E293B' : '#F1F5F9' }]}
+              activeOpacity={0.7}
+            >
+              <BadgeCheck size={12} color={c.textPrimary} style={{ marginRight: 4 }} />
               <Text style={[styles.metaValue, { color: c.textPrimary }]}>
+                {staffCode}
+              </Text>
+              <Copy size={10} color={c.textMuted} style={{ marginLeft: 4 }} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.metaItem}>
+            <Text style={[styles.metaLabel, { color: c.textMuted }]}>BRANCH</Text>
+            <View style={styles.branchRow}>
+              <Building2 size={12} color={c.textPrimary} style={{ marginRight: 4 }} />
+              <Text style={[styles.metaValue, { color: c.textPrimary }]} numberOfLines={1}>
                 {user?.officeBranch || user?.branch?.name || 'Central HQ'}
               </Text>
             </View>
@@ -569,7 +725,49 @@ export const ProfileScreen: React.FC = () => {
         </View>
       </View>
 
-      {/* ── Workspace Settings ────────────────────────────────────── */}
+      {/* ── 2. DYNAMIC REAL-TIME PROFILE COMPLETION WIDGET (Hidden when 100% completed) ──── */}
+      {activeUserCompletion.score < 100 ? (
+        <>
+          <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>
+            Profile Verification & Level Status
+          </Text>
+          <ProfileCompletionWidget
+            user={user}
+            onEditSection={openStepForSection}
+          />
+        </>
+      ) : (
+        /* Prestige 100% Master Executive Verified Banner */
+        <View
+          style={[
+            styles.prestigeVerifiedBanner,
+            {
+              backgroundColor: theme.isDark ? '#064E3B20' : '#ECFDF5',
+              borderColor: '#10B98150',
+            },
+          ]}
+        >
+          <View style={[styles.prestigeCrownCircle, { backgroundColor: '#10B98125' }]}>
+            <Crown size={22} color="#10B981" strokeWidth={2.5} />
+          </View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <View style={styles.prestigeTitleRow}>
+              <Text style={[styles.prestigeTitle, { color: theme.isDark ? '#34D399' : '#065F46' }]}>
+                Master Executive Clearance
+              </Text>
+              <View style={styles.prestigeBadge}>
+                <Check size={10} color="#FFFFFF" strokeWidth={3} />
+                <Text style={styles.prestigeBadgeText}>100% VERIFIED</Text>
+              </View>
+            </View>
+            <Text style={[styles.prestigeSubtitle, { color: theme.isDark ? '#A7F3D0' : '#047857' }]}>
+              All enterprise identity, clearance, and security links are active.
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* ── 3. WORKSPACE CONFIGURATION ──────────────────────────────── */}
       <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>
         Workspace Configuration
       </Text>
@@ -579,9 +777,11 @@ export const ProfileScreen: React.FC = () => {
             <View style={[styles.smallIconBox, { backgroundColor: c.accentLight }]}>
               <Volume2 size={16} color={c.accent} />
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={[styles.settingTitle, { color: c.textPrimary }]}>Notification Tone</Text>
-              <Text style={[styles.settingDesc, { color: c.textMuted }]}>{currentToneObj.name} ({currentToneObj.tag})</Text>
+              <Text style={[styles.settingDesc, { color: c.textMuted }]}>
+                {currentToneObj.name} ({currentToneObj.tag})
+              </Text>
             </View>
           </View>
           <AnimatedPressable
@@ -594,7 +794,7 @@ export const ProfileScreen: React.FC = () => {
         </View>
       </Card>
 
-      {/* ── Account Security ──────────────────────────────────────── */}
+      {/* ── 4. ACCOUNT SECURITY ─────────────────────────────────────── */}
       <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>
         Account Security & Access
       </Text>
@@ -608,13 +808,13 @@ export const ProfileScreen: React.FC = () => {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.actionRowText, { color: c.textPrimary }]}>Change Account Password</Text>
-            <Text style={[styles.actionRowDesc, { color: c.textMuted }]}>Update your workspace credentials</Text>
+            <Text style={[styles.actionRowDesc, { color: c.textMuted }]}>Update your secure credentials</Text>
           </View>
           <ChevronRight size={16} color={c.textMuted} />
         </AnimatedPressable>
       </Card>
 
-      {/* ── Device Capabilities & Hardware ────────────────────────── */}
+      {/* ── 5. DEVICE CAPABILITIES & HARDWARE ──────────────────────── */}
       <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>
         Device Capabilities & Hardware
       </Text>
@@ -625,7 +825,7 @@ export const ProfileScreen: React.FC = () => {
             <View style={[styles.smallPermIconBox, { backgroundColor: c.primaryLight }]}>
               <Camera size={16} color={c.primary} />
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={[styles.permTitle, { color: c.textPrimary }]}>Camera Access</Text>
               <Text style={[styles.permSub, { color: c.textMuted }]}>Photo capture & barcode scanner</Text>
             </View>
@@ -644,38 +844,13 @@ export const ProfileScreen: React.FC = () => {
 
         <View style={[styles.divider, { backgroundColor: c.border }]} />
 
-        {/* Storage / Photo Library Permission */}
-        <View style={styles.permRow}>
-          <View style={styles.permInfo}>
-            <View style={[styles.smallPermIconBox, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
-              <HardDrive size={16} color="#3B82F6" />
-            </View>
-            <View>
-              <Text style={[styles.permTitle, { color: c.textPrimary }]}>Local Storage Permission</Text>
-              <Text style={[styles.permSub, { color: c.textMuted }]}>Device file & storage access</Text>
-            </View>
-          </View>
-          {permissions.storage ? (
-            <View style={styles.grantedBadge}>
-              <CheckCircle size={14} color={c.success} />
-              <Text style={[styles.grantedText, { color: c.success }]}>Allowed</Text>
-            </View>
-          ) : (
-            <TouchableOpacity onPress={handleRequestStorage} style={[styles.reqBtn, { backgroundColor: c.primaryLight }]}>
-              <Text style={[styles.reqBtnText, { color: c.primary }]}>Grant</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={[styles.divider, { backgroundColor: c.border }]} />
-
         {/* Push Notifications Permission */}
         <View style={styles.permRow}>
           <View style={styles.permInfo}>
             <View style={[styles.smallPermIconBox, { backgroundColor: c.accentLight }]}>
               <Bell size={16} color={c.accent} />
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={[styles.permTitle, { color: c.textPrimary }]}>Push Notifications</Text>
               <Text style={[styles.permSub, { color: c.textMuted }]}>Realtime order & alert updates</Text>
             </View>
@@ -700,9 +875,9 @@ export const ProfileScreen: React.FC = () => {
             <View style={[styles.smallPermIconBox, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
               <MapPin size={16} color="#F59E0B" />
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={[styles.permTitle, { color: c.textPrimary }]}>GPS Location</Text>
-              <Text style={[styles.permSub, { color: c.textMuted }]}>Attendance geofencing & tracking</Text>
+              <Text style={[styles.permSub, { color: c.textMuted }]}>Branch geofence & attendance</Text>
             </View>
           </View>
           {permissions.location ? (
@@ -718,33 +893,34 @@ export const ProfileScreen: React.FC = () => {
         </View>
       </Card>
 
-      {/* ── Interface Theme (100% Full-Width Responsive Segmented Dock) ─ */}
-      <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Interface Theme</Text>
-      <Card style={styles.themeCard}>
-        <View style={styles.themeGrid}>
+      {/* ── 6. APPEARANCE & THEME PICKER ────────────────────────────── */}
+      <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>
+        Theme & Display Mode
+      </Text>
+      <Card style={styles.card}>
+        <View style={styles.themeOptionsRow}>
           {[
-            { id: 'system', label: 'System', icon: Monitor },
-            { id: 'light', label: 'Light', icon: Sun },
-            { id: 'dark', label: 'Dark', icon: Moon },
+            { mode: 'light' as ThemeMode, label: 'Light', icon: Sun },
+            { mode: 'dark' as ThemeMode, label: 'Dark', icon: Moon },
+            { mode: 'system' as ThemeMode, label: 'System', icon: Monitor },
           ].map((item) => {
+            const isSelected = themeMode === item.mode;
             const Icon = item.icon;
-            const isSelected = themeMode === item.id;
             return (
               <AnimatedPressable
-                key={item.id}
-                containerStyle={styles.themeBtnContainer}
-                onPress={() => setThemeMode(item.id as ThemeMode)}
+                key={item.mode}
+                onPress={() => setThemeMode(item.mode)}
                 style={[
-                  styles.themeOption,
+                  styles.themeOptionBtn,
                   {
                     backgroundColor: isSelected
                       ? theme.isDark
-                        ? 'rgba(99, 102, 241, 0.25)'
+                        ? '#1E293B'
                         : '#EEF2FF'
                       : theme.isDark
-                      ? '#1E293B'
+                      ? '#0F172A'
                       : '#F8FAFC',
-                    borderColor: isSelected ? c.primary : theme.isDark ? '#334155' : '#E2E8F0',
+                    borderColor: isSelected ? c.primary : c.border,
                     borderWidth: isSelected ? 2 : 1,
                   },
                 ]}
@@ -771,7 +947,7 @@ export const ProfileScreen: React.FC = () => {
         </View>
       </Card>
 
-      {/* ── Sign Out Button ───────────────────────────────────────── */}
+      {/* ── 7. SIGN OUT BUTTON ──────────────────────────────────────── */}
       <Card style={styles.logoutCard}>
         <AnimatedPressable
           onPress={() => {
@@ -814,7 +990,7 @@ export const ProfileScreen: React.FC = () => {
       )}
 
       {/* ══════════════════════════════════════════════════════════════ */}
-      {/* ── EDIT ENTERPRISE PROFILE MODAL ──────────────────────────── */}
+      {/* ── EDIT PROFILE MODAL WITH REAL-TIME LIVE PROGRESS ────────── */}
       {/* ══════════════════════════════════════════════════════════════ */}
       <Modal
         visible={editProfileVisible}
@@ -835,14 +1011,31 @@ export const ProfileScreen: React.FC = () => {
               },
             ]}
           >
-            {/* Modal Drag Indicator & Header */}
+            {/* Modal Drag Indicator & Header with LIVE Score Bar */}
             <View style={styles.modalHeaderTop}>
               <View style={[styles.modalIndicatorBar, { backgroundColor: c.borderStrong }]} />
+
               <View style={styles.modalTitleRow}>
-                <View>
-                  <Text style={[styles.modalTitle, { color: c.textPrimary }]}>Edit Enterprise Profile</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.modalTitle, { color: c.textPrimary }]}>
+                    Profile Completion Wizard
+                  </Text>
                   <Text style={[styles.modalSubtitle, { color: c.textMuted }]}>
-                    Update Identity, Photo & Contact Records
+                    Step {activeStep} of 4 · Fill & verify credentials
+                  </Text>
+                </View>
+                {/* Live Completion Pill */}
+                <View
+                  style={[
+                    styles.modalLiveScorePill,
+                    {
+                      backgroundColor: theme.isDark ? '#1E293B' : '#EEF2FF',
+                      borderColor: liveDraftCompletion.level.color,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.modalLiveScoreText, { color: liveDraftCompletion.level.color }]}>
+                    {liveDraftCompletion.score}% Done
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -852,6 +1045,108 @@ export const ProfileScreen: React.FC = () => {
                   <X size={18} color={c.textPrimary} />
                 </TouchableOpacity>
               </View>
+
+              {/* ── 4-STEP INTERACTIVE STEPPER TABS ─────────────────── */}
+              <View style={styles.stepperNavRow}>
+                {[
+                  {
+                    id: 1,
+                    title: 'Identity',
+                    icon: User,
+                    isDone: editName.trim().length >= 2 && editBio.trim().length >= 5,
+                  },
+                  {
+                    id: 2,
+                    title: 'Enterprise',
+                    icon: Briefcase,
+                    isDone: editDepartment.trim().length > 0 && editStaffId.trim().length > 0,
+                  },
+                  {
+                    id: 3,
+                    title: 'Contact',
+                    icon: Phone,
+                    isDone: editPhone.trim().length >= 7 && editEmergencyPhone.trim().length >= 7,
+                  },
+                  {
+                    id: 4,
+                    title: 'Location',
+                    icon: MapPin,
+                    isDone: editAddress.trim().length >= 3 && editCityState.trim().length >= 3,
+                  },
+                ].map((step) => {
+                  const isCurrent = activeStep === step.id;
+                  const IconComp = step.icon;
+                  return (
+                    <TouchableOpacity
+                      key={step.id}
+                      onPress={() => setActiveStep(step.id)}
+                      style={[
+                        styles.stepperTab,
+                        {
+                          backgroundColor: isCurrent
+                            ? theme.isDark
+                              ? 'rgba(99, 102, 241, 0.25)'
+                              : '#EEF2FF'
+                            : theme.isDark
+                            ? '#0B0F19'
+                            : '#F8FAFC',
+                          borderColor: isCurrent
+                            ? c.primary
+                            : step.isDone
+                            ? '#10B98160'
+                            : theme.isDark
+                            ? '#1E293B'
+                            : '#E2E8F0',
+                        },
+                      ]}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.stepperTabHeader}>
+                        <IconComp
+                          size={13}
+                          color={isCurrent ? c.primary : step.isDone ? '#10B981' : c.textMuted}
+                        />
+                        {step.isDone && (
+                          <View style={[styles.stepperDoneDot, { backgroundColor: '#10B981' }]}>
+                            <Check size={8} color="#FFFFFF" strokeWidth={3} />
+                          </View>
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.stepperTabTitle,
+                          {
+                            color: isCurrent
+                              ? c.primary
+                              : step.isDone
+                              ? theme.isDark
+                                ? '#34D399'
+                                : '#059669'
+                              : c.textMuted,
+                            fontWeight: isCurrent ? '800' : '600',
+                          },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {step.title}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Real-time Dynamic Progress Bar */}
+              <View style={[styles.modalLinearBarBg, { backgroundColor: theme.isDark ? '#1E293B' : '#F1F5F9' }]}>
+                <View
+                  style={[
+                    styles.modalLinearBarFill,
+                    {
+                      backgroundColor: liveDraftCompletion.level.color,
+                      width: `${liveDraftCompletion.score}%`,
+                    },
+                  ]}
+                />
+              </View>
             </View>
 
             <ScrollView
@@ -859,185 +1154,248 @@ export const ProfileScreen: React.FC = () => {
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.modalScrollContent}
             >
-              {/* ── 1. AVATAR STUDIO DROPZONE ───────────────────────── */}
-              <View
-                style={[
-                  styles.uploadCard,
-                  {
-                    backgroundColor: theme.isDark ? '#1E293B' : '#F8FAFC',
-                    borderColor: theme.isDark ? '#334155' : '#E2E8F0',
-                  },
-                ]}
-              >
-                <View style={styles.uploadAvatarRow}>
+              {/* ── STEP 1: PERSONAL IDENTITY & CHARACTER AVATAR ────────────── */}
+              {activeStep === 1 && (
+                <>
                   <View
                     style={[
-                      styles.uploadPreviewBox,
+                      styles.uploadCard,
                       {
-                        backgroundColor: theme.isDark ? '#0F172A' : '#EEF2FF',
-                        borderColor: c.primary,
+                        backgroundColor: theme.isDark ? '#1E293B' : '#F8FAFC',
+                        borderColor: theme.isDark ? '#334155' : '#E2E8F0',
                       },
                     ]}
                   >
-                    <Image source={{ uri: editAvatar || userAvatar }} style={styles.uploadPreviewImg} />
-                  </View>
-
-                  <View style={styles.uploadInfoCol}>
-                    <Text style={[styles.uploadCardTitle, { color: c.textPrimary }]}>
-                      Anime & Cartoon Avatar
-                    </Text>
-                    <Text style={[styles.uploadCardDesc, { color: c.textMuted }]}>
-                      3D Character Presets & Live Camera Studio
-                    </Text>
-
-                    <View style={styles.uploadActionsRow}>
-                      <AnimatedPressable
-                        onPress={() => setAvatarStudioVisible(true)}
-                        style={[styles.uploadBtn, { backgroundColor: c.primary }]}
+                    <View style={styles.uploadAvatarRow}>
+                      <View
+                        style={[
+                          styles.uploadPreviewBox,
+                          {
+                            backgroundColor: theme.isDark ? '#0F172A' : '#EEF2FF',
+                            borderColor: liveDraftCompletion.level.color,
+                          },
+                        ]}
                       >
-                        <Sparkles size={14} color="#FFFFFF" strokeWidth={2.2} />
-                        <Text style={styles.uploadBtnText}>Avatar Studio</Text>
-                      </AnimatedPressable>
+                        <Image source={{ uri: editAvatar || userAvatar }} style={styles.uploadPreviewImg} />
+                      </View>
 
-                      <AnimatedPressable
-                        onPress={handleTriggerCamera}
-                        style={[styles.cameraActionBtn, { backgroundColor: theme.isDark ? '#0F172A' : '#EEF2FF', borderColor: c.primary }]}
-                      >
-                        <Camera size={13} color={c.primary} />
-                        <Text style={[styles.cameraActionText, { color: c.primary }]}>Camera</Text>
-                      </AnimatedPressable>
+                      <View style={styles.uploadInfoCol}>
+                        <Text style={[styles.uploadCardTitle, { color: c.textPrimary }]}>
+                          Photo & Character Studio
+                        </Text>
+                        <Text style={[styles.uploadCardDesc, { color: c.textMuted }]}>
+                          Choose 3D Anime, Cartoon, or Take Photo (+15%)
+                        </Text>
+
+                        <View style={styles.uploadActionsRow}>
+                          <AnimatedPressable
+                            onPress={() => setAvatarStudioVisible(true)}
+                            style={[styles.uploadBtn, { backgroundColor: c.primary }]}
+                          >
+                            <Sparkles size={14} color="#FFFFFF" strokeWidth={2.2} />
+                            <Text style={styles.uploadBtnText}>Avatar Studio</Text>
+                          </AnimatedPressable>
+
+                          <AnimatedPressable
+                            onPress={handleTriggerCamera}
+                            style={[
+                              styles.cameraActionBtn,
+                              {
+                                backgroundColor: theme.isDark ? '#0F172A' : '#EEF2FF',
+                                borderColor: c.primary,
+                              },
+                            ]}
+                          >
+                            <Camera size={13} color={c.primary} />
+                            <Text style={[styles.cameraActionText, { color: c.primary }]}>Camera</Text>
+                          </AnimatedPressable>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Horizontal Character Reel */}
+                    <View style={styles.presetAvatarsRow}>
+                      <Text style={[styles.presetLabel, { color: c.textMuted }]}>
+                        QUICK 3D HERO PRESETS:
+                      </Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetScroll}>
+                        {ALL_PRESETS.map((preset) => {
+                          const isChosen = editAvatar === preset.url;
+                          return (
+                            <TouchableOpacity
+                              key={preset.id}
+                              onPress={() => setEditAvatar(preset.url)}
+                              style={[
+                                styles.presetThumbBox,
+                                {
+                                  borderColor: isChosen ? c.primary : theme.isDark ? '#334155' : '#CBD5E1',
+                                  borderWidth: isChosen ? 2.5 : 1,
+                                  backgroundColor: theme.isDark ? '#0F172A' : '#FFFFFF',
+                                },
+                              ]}
+                              activeOpacity={0.8}
+                            >
+                              <Image source={{ uri: preset.url }} style={styles.presetThumbImg} />
+                              {isChosen && (
+                                <View style={[styles.chosenCheck, { backgroundColor: c.primary }]}>
+                                  <Check size={10} color="#FFFFFF" strokeWidth={3} />
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
                     </View>
                   </View>
+
+                  <View style={styles.formSection}>
+                    <View style={styles.formSectionHeader}>
+                      <Text style={[styles.formSectionTitle, { color: c.primary }]}>
+                        1. PERSONAL IDENTITY
+                      </Text>
+                      {editName.trim().length >= 2 && editBio.trim().length >= 5 ? (
+                        <View style={styles.sectionValidBadge}>
+                          <CheckCircle size={12} color="#10B981" />
+                          <Text style={styles.sectionValidText}>Done</Text>
+                        </View>
+                      ) : (
+                        <View style={[styles.sectionValidBadge, { backgroundColor: '#F59E0B20', borderColor: '#F59E0B' }]}>
+                          <Text style={[styles.sectionValidText, { color: '#F59E0B' }]}>Required</Text>
+                        </View>
+                      )}
+                    </View>
+                    <TextField
+                      label="Full Legal Name *"
+                      placeholder="e.g. PJSV Super Admin"
+                      value={editName}
+                      onChangeText={setEditName}
+                    />
+                    <TextField
+                      label="Professional Bio / Summary *"
+                      placeholder="Enterprise Administrator overseeing cross-branch commerce operations..."
+                      value={editBio}
+                      onChangeText={setEditBio}
+                      multiline
+                    />
+                  </View>
+                </>
+              )}
+
+              {/* ── STEP 2: ENTERPRISE ROLE & DEPARTMENT ────────────────────── */}
+              {activeStep === 2 && (
+                <View style={styles.formSection}>
+                  <View style={styles.formSectionHeader}>
+                    <Text style={[styles.formSectionTitle, { color: c.primary }]}>
+                      2. ENTERPRISE ROLE & DEPARTMENT
+                    </Text>
+                    {editDepartment.trim().length > 0 && editStaffId.trim().length > 0 ? (
+                      <View style={styles.sectionValidBadge}>
+                        <CheckCircle size={12} color="#10B981" />
+                        <Text style={styles.sectionValidText}>Done</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.sectionValidBadge, { backgroundColor: '#F59E0B20', borderColor: '#F59E0B' }]}>
+                        <Text style={[styles.sectionValidText, { color: '#F59E0B' }]}>Required</Text>
+                      </View>
+                    )}
+                  </View>
+                  <TextField
+                    label="Department / Functional Unit *"
+                    placeholder="e.g. Executive Management & Operations"
+                    value={editDepartment}
+                    onChangeText={setEditDepartment}
+                  />
+                  <TextField
+                    label="Staff ID / Employee Code *"
+                    placeholder="e.g. EMP-2026-001"
+                    value={editStaffId}
+                    onChangeText={setEditStaffId}
+                  />
+                  <TextField
+                    label="Primary Assigned Branch"
+                    placeholder="e.g. Central Command Headquarters"
+                    value={editOfficeBranch}
+                    onChangeText={setEditOfficeBranch}
+                  />
                 </View>
+              )}
 
-                {/* Quick 3D Anime & Cartoon Presets Horizontal Reel */}
-                <View style={styles.presetAvatarsRow}>
-                  <Text style={[styles.presetLabel, { color: c.textMuted }]}>
-                    3D ANIME & CARTOON PRESETS:
-                  </Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetScroll}>
-                    {ALL_PRESETS.map((preset) => {
-                      const isChosen = editAvatar === preset.url;
-                      return (
-                        <TouchableOpacity
-                          key={preset.id}
-                          onPress={() => handleSelectAvatarDirect(preset.url, preset.name)}
-                          style={[
-                            styles.presetThumbBox,
-                            {
-                              borderColor: isChosen ? c.primary : theme.isDark ? '#334155' : '#CBD5E1',
-                              borderWidth: isChosen ? 2.5 : 1,
-                              backgroundColor: theme.isDark ? '#0F172A' : '#FFFFFF',
-                            },
-                          ]}
-                          activeOpacity={0.8}
-                        >
-                          <Image source={{ uri: preset.url }} style={styles.presetThumbImg} />
-                          {isChosen && (
-                            <View style={[styles.chosenCheck, { backgroundColor: c.primary }]}>
-                              <Check size={10} color="#FFFFFF" strokeWidth={3} />
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
+              {/* ── STEP 3: CONTACT & EMERGENCY INFORMATION ────────────────── */}
+              {activeStep === 3 && (
+                <View style={styles.formSection}>
+                  <View style={styles.formSectionHeader}>
+                    <Text style={[styles.formSectionTitle, { color: c.primary }]}>
+                      3. CONTACT & COMMUNICATION
+                    </Text>
+                    {editPhone.trim().length >= 7 && editEmergencyPhone.trim().length >= 7 ? (
+                      <View style={styles.sectionValidBadge}>
+                        <CheckCircle size={12} color="#10B981" />
+                        <Text style={styles.sectionValidText}>Done</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.sectionValidBadge, { backgroundColor: '#F59E0B20', borderColor: '#F59E0B' }]}>
+                        <Text style={[styles.sectionValidText, { color: '#F59E0B' }]}>Required</Text>
+                      </View>
+                    )}
+                  </View>
+                  <TextField
+                    label="Direct Contact Mobile Number *"
+                    placeholder="+91 98400 12345"
+                    value={editPhone}
+                    onChangeText={setEditPhone}
+                    keyboardType="phone-pad"
+                  />
+                  <TextField
+                    label="Emergency Contact Phone *"
+                    placeholder="+91 98400 99999"
+                    value={editEmergencyPhone}
+                    onChangeText={setEditEmergencyPhone}
+                    keyboardType="phone-pad"
+                  />
+                  <TextField
+                    label="Official Email Address (System Authenticated)"
+                    value={user?.email || ''}
+                    editable={false}
+                  />
                 </View>
-              </View>
+              )}
 
-              {/* ── 2. PERSONAL IDENTITY SECTION ───────────────────── */}
-              <View style={styles.formSection}>
-                <Text style={[styles.formSectionTitle, { color: c.primary }]}>
-                  1. PERSONAL IDENTITY
-                </Text>
-                <TextField
-                  label="Full Legal Name *"
-                  placeholder="e.g. PJSV Super Admin"
-                  value={editName}
-                  onChangeText={setEditName}
-                />
-                <TextField
-                  label="Professional Bio / Executive Summary"
-                  placeholder="Enterprise Administrator managing cross-branch commerce operations..."
-                  value={editBio}
-                  onChangeText={setEditBio}
-                  multiline
-                />
-              </View>
-
-              {/* ── 3. ENTERPRISE & ROLE DETAILS ───────────────────── */}
-              <View style={styles.formSection}>
-                <Text style={[styles.formSectionTitle, { color: c.primary }]}>
-                  2. ENTERPRISE ROLE & DEPARTMENT
-                </Text>
-                <TextField
-                  label="Department / Functional Area"
-                  placeholder="e.g. Operations & Executive Management"
-                  value={editDepartment}
-                  onChangeText={setEditDepartment}
-                />
-                <TextField
-                  label="Staff ID / Employee Code"
-                  placeholder="e.g. EMP-2026-001"
-                  value={editStaffId}
-                  onChangeText={setEditStaffId}
-                />
-                <TextField
-                  label="Primary Assigned Office / Branch"
-                  placeholder="e.g. Central Command Headquarters"
-                  value={editOfficeBranch}
-                  onChangeText={setEditOfficeBranch}
-                />
-              </View>
-
-              {/* ── 4. CONTACT & EMERGENCY INFORMATION ─────────────── */}
-              <View style={styles.formSection}>
-                <Text style={[styles.formSectionTitle, { color: c.primary }]}>
-                  3. CONTACT & COMMUNICATION
-                </Text>
-                <TextField
-                  label="Direct Contact Mobile Number"
-                  placeholder="+91 98400 12345"
-                  value={editPhone}
-                  onChangeText={setEditPhone}
-                  keyboardType="phone-pad"
-                />
-                <TextField
-                  label="Emergency Contact Phone"
-                  placeholder="+91 98400 99999"
-                  value={editEmergencyPhone}
-                  onChangeText={setEditEmergencyPhone}
-                  keyboardType="phone-pad"
-                />
-                <TextField
-                  label="Official Email Address (System Authenticated)"
-                  value={user?.email || ''}
-                  editable={false}
-                />
-              </View>
-
-              {/* ── 5. LOCATION & MAILING ADDRESS ──────────────────── */}
-              <View style={styles.formSection}>
-                <Text style={[styles.formSectionTitle, { color: c.primary }]}>
-                  4. REGISTERED RESIDENCE / LOCATION
-                </Text>
-                <TextField
-                  label="Registered Street Address"
-                  placeholder="Suite 404, SVK Executive Commercial Towers..."
-                  value={editAddress}
-                  onChangeText={setEditAddress}
-                  multiline
-                />
-                <TextField
-                  label="City, State & Pincode"
-                  placeholder="Chennai, Tamil Nadu - 600001"
-                  value={editCityState}
-                  onChangeText={setEditCityState}
-                />
-              </View>
+              {/* ── STEP 4: LOCATION & MAILING ADDRESS ───────────────────────── */}
+              {activeStep === 4 && (
+                <View style={styles.formSection}>
+                  <View style={styles.formSectionHeader}>
+                    <Text style={[styles.formSectionTitle, { color: c.primary }]}>
+                      4. REGISTERED RESIDENCE / LOCATION
+                    </Text>
+                    {editAddress.trim().length >= 3 && editCityState.trim().length >= 3 ? (
+                      <View style={styles.sectionValidBadge}>
+                        <CheckCircle size={12} color="#10B981" />
+                        <Text style={styles.sectionValidText}>Done</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.sectionValidBadge, { backgroundColor: '#F59E0B20', borderColor: '#F59E0B' }]}>
+                        <Text style={[styles.sectionValidText, { color: '#F59E0B' }]}>Required</Text>
+                      </View>
+                    )}
+                  </View>
+                  <TextField
+                    label="Registered Street Address *"
+                    placeholder="Suite 404, SVK Executive Commercial Towers..."
+                    value={editAddress}
+                    onChangeText={setEditAddress}
+                    multiline
+                  />
+                  <TextField
+                    label="City, State & Pincode *"
+                    placeholder="Chennai, Tamil Nadu - 600001"
+                    value={editCityState}
+                    onChangeText={setEditCityState}
+                  />
+                </View>
+              )}
             </ScrollView>
 
-            {/* Sticky Modal Action Footer */}
+            {/* Stepper Modal Action Footer */}
             <View
               style={[
                 styles.modalFooter,
@@ -1047,18 +1405,64 @@ export const ProfileScreen: React.FC = () => {
                 },
               ]}
             >
-              <PrimaryButton
-                title="Save Profile Details"
-                onPress={handleSaveProfile}
-                loading={savingProfile}
-              />
+              <View style={styles.stepperNavFooterRow}>
+                {activeStep > 1 ? (
+                  <TouchableOpacity
+                    onPress={() => setActiveStep((prev) => Math.max(1, prev - 1))}
+                    style={[
+                      styles.stepperPrevBtn,
+                      {
+                        borderColor: theme.isDark ? '#334155' : '#CBD5E1',
+                        backgroundColor: theme.isDark ? '#1E293B' : '#F1F5F9',
+                      },
+                    ]}
+                  >
+                    <ArrowLeft size={16} color={c.textPrimary} />
+                    <Text style={[styles.stepperPrevText, { color: c.textPrimary }]}>Back</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {activeStep < 4 ? (
+                  <TouchableOpacity
+                    onPress={() => setActiveStep((prev) => Math.min(4, prev + 1))}
+                    style={[styles.stepperNextBtn, { backgroundColor: c.primary }]}
+                  >
+                    <Text style={styles.stepperNextText}>Next Step</Text>
+                    <ArrowRight size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    onPress={handleSaveProfile}
+                    disabled={savingProfile}
+                    style={[styles.stepperSaveBtn, { backgroundColor: '#10B981' }]}
+                  >
+                    <Crown size={16} color="#FFFFFF" strokeWidth={2.5} style={{ marginRight: 6 }} />
+                    <Text style={styles.stepperSaveText}>
+                      {savingProfile ? 'Saving...' : `Save & Complete (${liveDraftCompletion.score}%)`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Quick Save Option for intermediate steps */}
+              {activeStep < 4 && (
+                <TouchableOpacity
+                  onPress={handleSaveProfile}
+                  disabled={savingProfile}
+                  style={styles.quickSaveBtn}
+                >
+                  <Text style={[styles.quickSaveText, { color: c.textMuted }]}>
+                    Save draft changes now ({liveDraftCompletion.score}%)
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
       {/* ══════════════════════════════════════════════════════════════ */}
-      {/* ── 3D ANIME, CARTOON & DEVICE STORAGE AVATAR STUDIO MODAL ─── */}
+      {/* ── 3D AVATAR STUDIO MODAL ─────────────────────────────────── */}
       {/* ══════════════════════════════════════════════════════════════ */}
       <Modal
         visible={avatarStudioVisible}
@@ -1076,7 +1480,6 @@ export const ProfileScreen: React.FC = () => {
               },
             ]}
           >
-            {/* Header */}
             <View style={styles.studioHeader}>
               <View>
                 <Text style={[styles.studioTitle, { color: c.textPrimary }]}>3D Avatar Studio</Text>
@@ -1092,12 +1495,11 @@ export const ProfileScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
 
-            {/* Studio Segmented Tabs */}
             <View style={styles.studioTabsRow}>
               {[
                 { id: 'anime', label: '🎌 3D Anime', count: ANIME_AVATAR_PRESETS.length },
                 { id: 'cartoon', label: '🎨 3D Cartoon', count: CARTOON_3D_PRESETS.length },
-                { id: 'storage', label: '🔒 Local Access', count: 0 },
+                { id: 'storage', label: '🔒 Device Access', count: 0 },
               ].map((tab) => {
                 const isActive = activeStudioTab === tab.id;
                 return (
@@ -1129,7 +1531,6 @@ export const ProfileScreen: React.FC = () => {
               })}
             </View>
 
-            {/* Studio Content Grid */}
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.studioScrollContent}>
               {activeStudioTab === 'anime' && (
                 <View style={styles.avatarGrid}>
@@ -1212,14 +1613,12 @@ export const ProfileScreen: React.FC = () => {
                   <View style={[styles.storageIconShield, { backgroundColor: c.primaryLight }]}>
                     <HardDrive size={32} color={c.primary} strokeWidth={2.2} />
                   </View>
-
                   <Text style={[styles.storageShieldTitle, { color: c.textPrimary }]}>
                     Device Storage Access
                   </Text>
                   <Text style={[styles.storageShieldDesc, { color: c.textMuted }]}>
                     Access local photos & camera securely with Android OS permissions.
                   </Text>
-
                   <View style={styles.storageActionRow}>
                     <TouchableOpacity
                       onPress={handleTriggerCamera}
@@ -1249,7 +1648,7 @@ export const ProfileScreen: React.FC = () => {
       </Modal>
 
       {/* ══════════════════════════════════════════════════════════════ */}
-      {/* ── INTERACTIVE LIVE CAMERA VIEWFINDER MODAL ────────────────── */}
+      {/* ── LIVE CAMERA VIEW FINDER MODAL ──────────────────────────── */}
       {/* ══════════════════════════════════════════════════════════════ */}
       <Modal
         visible={cameraModalVisible}
@@ -1257,121 +1656,38 @@ export const ProfileScreen: React.FC = () => {
         transparent={true}
         onRequestClose={() => setCameraModalVisible(false)}
       >
-        <View style={styles.cameraModalBackdrop}>
-          <View style={styles.cameraViewfinderContainer}>
-            {/* Viewfinder Header */}
-            <View style={styles.viewfinderHeader}>
-              <View>
-                <Text style={styles.viewfinderTitle}>Executive Camera Viewfinder</Text>
-                <Text style={styles.viewfinderSubtitle}>
-                  Lens: {currentLensAvatar.name} ({currentLensAvatar.category})
-                </Text>
-              </View>
+        <View style={styles.cameraBackdrop}>
+          <View style={styles.cameraTopControls}>
+            <TouchableOpacity onPress={() => setCameraModalVisible(false)} style={styles.cameraControlCircle}>
+              <X size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text style={styles.cameraTitleText}>3D Live Viewfinder</Text>
+            <View style={{ width: 40 }} />
+          </View>
 
-              <View style={styles.viewfinderTopActions}>
-                <TouchableOpacity
-                  onPress={() => {
-                    setFlashActive(!flashActive);
-                    showToast(flashActive ? 'Flash turned off' : 'Flash enabled');
-                  }}
-                  style={[
-                    styles.viewfinderActionIconBtn,
-                    { backgroundColor: flashActive ? '#F59E0B' : 'rgba(255,255,255,0.2)' },
-                  ]}
-                >
-                  <Zap size={17} color="#FFFFFF" />
-                </TouchableOpacity>
+          <View style={styles.cameraViewfinderBox}>
+            <Image
+              source={{ uri: ALL_PRESETS[selectedLensIndex % ALL_PRESETS.length].url }}
+              style={styles.cameraHeroCharacter}
+            />
+            {capturingShutter && <Animated.View style={[styles.shutterFlash, { opacity: shutterAnim }]} />}
+          </View>
 
-                <TouchableOpacity
-                  onPress={handleFlipLens}
-                  style={styles.viewfinderActionIconBtn}
-                >
-                  <RefreshCw size={17} color="#FFFFFF" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={() => setCameraModalVisible(false)}
-                  style={styles.closeViewfinderBtn}
-                >
-                  <X size={18} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Live Camera Frame Preview */}
-            <View style={styles.viewfinderFrame}>
-              <Image
-                source={{ uri: currentLensAvatar.url }}
-                style={styles.viewfinderLiveImg}
-              />
-
-              {/* Viewfinder Target Guidelines */}
-              <View style={styles.targetReticle} pointerEvents="none">
-                <View style={styles.reticleCornerTL} />
-                <View style={styles.reticleCornerTR} />
-                <View style={styles.reticleCornerBL} />
-                <View style={styles.reticleCornerBR} />
-              </View>
-
-              {/* Shutter Flash Animation */}
-              <Animated.View
-                style={[
-                  styles.shutterFlash,
-                  {
-                    opacity: shutterAnim,
-                  },
-                ]}
-                pointerEvents="none"
-              />
-            </View>
-
-            {/* Viewfinder Control Bar */}
-            <View style={styles.viewfinderControls}>
-              <Text style={styles.viewfinderPrompt}>
-                Position face inside the reticle and tap shutter to capture
-              </Text>
-
-              {/* Horizontal Lens Switcher Quick Carousel */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.lensReelScroll}
-              >
-                {ALL_PRESETS.map((p, idx) => {
-                  const isCur = selectedLensIndex % ALL_PRESETS.length === idx;
-                  return (
-                    <TouchableOpacity
-                      key={p.id}
-                      onPress={() => setSelectedLensIndex(idx)}
-                      style={[
-                        styles.lensThumbCircle,
-                        {
-                          borderColor: isCur ? '#4ADE80' : 'rgba(255,255,255,0.4)',
-                          borderWidth: isCur ? 2.5 : 1,
-                        },
-                      ]}
-                    >
-                      <Image source={{ uri: p.url }} style={styles.lensThumbImg} />
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              <TouchableOpacity
-                onPress={handleShutterCapture}
-                style={styles.shutterOuterBtn}
-                activeOpacity={0.7}
-              >
-                <View style={styles.shutterInnerBtn}>
-                  <Aperture size={28} color={c.primary} />
-                </View>
-              </TouchableOpacity>
-            </View>
+          <View style={styles.cameraBottomControls}>
+            <TouchableOpacity
+              onPress={handleShutterCapture}
+              style={styles.shutterOuterRing}
+              activeOpacity={0.8}
+            >
+              <View style={styles.shutterInnerCircle} />
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* ── Tone Selection Modal ────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {/* ── NOTIFICATION TONE PICKER MODAL ─────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
       <Modal
         visible={toneModalVisible}
         animationType="slide"
@@ -1379,101 +1695,82 @@ export const ProfileScreen: React.FC = () => {
         onRequestClose={() => setToneModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheetBox, { backgroundColor: theme.isDark ? c.surface : '#FFFFFF', borderColor: c.border }]}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={[theme.typography.h3, { color: c.textPrimary }]}>Alert Tone & Sound</Text>
-                <Text style={[theme.typography.caption, { color: c.textMuted }]}>
-                  Select haptic audio feedback tone
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setToneModalVisible(false)} style={styles.closeBtn}>
-                <X size={20} color={c.textMuted} />
+          <View style={[styles.toneSheet, { backgroundColor: theme.isDark ? '#0F172A' : '#FFFFFF' }]}>
+            <View style={styles.toneHeader}>
+              <Text style={[styles.toneTitle, { color: c.textPrimary }]}>Choose Alert Sound</Text>
+              <TouchableOpacity onPress={() => setToneModalVisible(false)}>
+                <X size={18} color={c.textPrimary} />
               </TouchableOpacity>
             </View>
-
-            <View style={styles.toneList}>
+            <ScrollView style={{ maxHeight: 300 }}>
               {NOTIFICATION_TONES.map((t) => {
-                const isSelected = selectedTone === t.id;
+                const isPicked = selectedTone === t.id;
                 return (
                   <TouchableOpacity
                     key={t.id}
                     onPress={() => handleSelectTone(t.id)}
                     style={[
-                      styles.toneOptionItem,
+                      styles.toneRow,
                       {
-                        backgroundColor: isSelected ? c.primaryLight : c.surfaceSecondary,
-                        borderColor: isSelected ? c.primary : c.border,
+                        backgroundColor: isPicked ? c.primaryLight : 'transparent',
+                        borderColor: isPicked ? c.primary : c.border,
                       },
                     ]}
-                    activeOpacity={0.7}
                   >
-                    <View style={{ flex: 1 }}>
-                      <View style={styles.toneOptionTitleRow}>
-                        <Text style={[styles.toneOptionName, { color: c.textPrimary }]}>{t.name}</Text>
-                        <Badge label={t.tag} variant={isSelected ? 'primary' : 'neutral'} />
-                      </View>
-                      <Text style={[styles.toneOptionDesc, { color: c.textMuted }]}>{t.description}</Text>
+                    <Volume2 size={16} color={isPicked ? c.primary : c.textMuted} />
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={[styles.toneName, { color: isPicked ? c.primary : c.textPrimary }]}>
+                        {t.name}
+                      </Text>
+                      <Text style={[styles.toneDesc, { color: c.textMuted }]}>{t.tag}</Text>
                     </View>
-
-                    {isSelected ? (
-                      <View style={[styles.selectedCheck, { backgroundColor: c.primary }]}>
-                        <Check size={14} color="#FFFFFF" strokeWidth={2.5} />
-                      </View>
-                    ) : (
-                      <TouchableOpacity
-                        onPress={() => NotificationService.previewTone(t.id)}
-                        style={styles.previewBtn}
-                      >
-                        <Volume2 size={16} color={c.textMuted} />
-                      </TouchableOpacity>
-                    )}
+                    {isPicked && <Check size={16} color={c.primary} />}
                   </TouchableOpacity>
                 );
               })}
-            </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* ── Change Password Modal ─────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {/* ── CHANGE PASSWORD MODAL ──────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
       <Modal
         visible={passwordModalVisible}
-        animationType="fade"
+        animationType="slide"
         transparent={true}
         onRequestClose={() => setPasswordModalVisible(false)}
       >
-        <View style={styles.modalOverlayCenter}>
-          <View style={[styles.pwdModalSheet, { backgroundColor: theme.isDark ? c.surface : '#FFFFFF', borderColor: c.border }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[theme.typography.h3, { color: c.textPrimary }]}>Change Password</Text>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.pwdSheet, { backgroundColor: theme.isDark ? '#0F172A' : '#FFFFFF' }]}>
+            <View style={styles.pwdHeader}>
+              <Text style={[styles.pwdTitle, { color: c.textPrimary }]}>Update Password</Text>
               <TouchableOpacity onPress={() => setPasswordModalVisible(false)}>
-                <X size={20} color={c.textMuted} />
+                <X size={18} color={c.textPrimary} />
               </TouchableOpacity>
             </View>
-
             <TextField
               label="Current Password"
-              placeholder="••••••••"
+              placeholder="Enter active password"
               value={currentPassword}
               onChangeText={setCurrentPassword}
-              isPassword
+              secureTextEntry
             />
-
             <TextField
               label="New Password"
-              placeholder="••••••••"
+              placeholder="Enter new 6+ character password"
               value={newPassword}
               onChangeText={setNewPassword}
-              isPassword
+              secureTextEntry
             />
-
-            <PrimaryButton
-              title="Update Password"
-              onPress={handleChangePassword}
-              loading={changingPassword}
-              style={{ marginTop: 14 }}
-            />
+            <View style={{ marginTop: 16 }}>
+              <PrimaryButton
+                title="Update Password"
+                onPress={handleChangePassword}
+                loading={changingPassword}
+              />
+            </View>
           </View>
         </View>
       </Modal>
@@ -1481,34 +1778,30 @@ export const ProfileScreen: React.FC = () => {
   );
 };
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
   screenScrollContent: {
-    paddingBottom: 130,
+    paddingBottom: 40,
   },
   editProfileBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 6,
     borderRadius: 12,
     borderWidth: 1,
-    gap: 6,
   },
   editProfileBtnText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
+    marginLeft: 4,
   },
   heroCardContainer: {
-    borderRadius: 24,
-    borderWidth: 1.2,
+    borderRadius: 22,
+    borderWidth: 1.5,
     padding: 18,
-    marginVertical: 8,
-    position: 'relative',
-    overflow: 'hidden',
-    elevation: 6,
-    shadowOffset: { width: 0, height: 4 },
+    marginBottom: 16,
+    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 14,
   },
@@ -1518,70 +1811,83 @@ const styles = StyleSheet.create({
   },
   avatarHeroWrapper: {
     position: 'relative',
-    marginRight: 14,
   },
   avatarHeroBox: {
-    width: 68,
-    height: 68,
-    borderRadius: 24,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2.5,
     overflow: 'hidden',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   avatarHeroImg: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
+  },
+  avatarScoreTag: {
+    position: 'absolute',
+    bottom: -4,
+    left: -4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 8,
+    elevation: 3,
+  },
+  avatarScoreTagText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#FFFFFF',
   },
   avatarEditBadge: {
     position: 'absolute',
-    bottom: -2,
-    right: -2,
+    bottom: 0,
+    right: 0,
     width: 24,
     height: 24,
     borderRadius: 12,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
     borderWidth: 2,
     borderColor: '#FFFFFF',
     elevation: 3,
   },
   heroDetails: {
     flex: 1,
-    justifyContent: 'center',
+    marginLeft: 16,
   },
   nameVerifiedRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    marginBottom: 3,
   },
   heroName: {
     fontSize: 19,
     fontWeight: '900',
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
+    marginRight: 6,
   },
   verifiedBadge: {
     width: 16,
     height: 16,
     borderRadius: 8,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroEmailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
   },
   heroEmail: {
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: 12,
     fontWeight: '500',
   },
   heroPhoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 3,
-    gap: 4,
+    marginTop: 4,
   },
   heroPhone: {
     fontSize: 12,
@@ -1600,10 +1906,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   metaLabel: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.6,
     marginBottom: 4,
+  },
+  metaValue: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   roleChip: {
     flexDirection: 'row',
@@ -1615,100 +1925,154 @@ const styles = StyleSheet.create({
   },
   roleChipText: {
     fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.3,
+    fontWeight: '800',
+  },
+  staffIdBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
   },
   branchRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  metaValue: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
   sectionTitle: {
-    fontSize: 14.5,
+    fontSize: 15,
     fontWeight: '800',
+    marginTop: 10,
+    marginBottom: 10,
     letterSpacing: -0.2,
-    marginTop: 18,
-    marginBottom: 8,
+  },
+  prestigeVerifiedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    marginBottom: 16,
+    elevation: 3,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+  },
+  prestigeCrownCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  prestigeTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 3,
+  },
+  prestigeTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  prestigeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#10B981',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+    gap: 3,
+  },
+  prestigeBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  prestigeSubtitle: {
+    fontSize: 11,
+    lineHeight: 15,
   },
   card: {
+    borderRadius: 18,
     padding: 16,
-    marginVertical: 4,
+    marginBottom: 14,
   },
   settingRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
   settingLabelWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
     flex: 1,
   },
   smallIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   settingTitle: {
     fontSize: 14,
     fontWeight: '700',
   },
   settingDesc: {
-    fontSize: 11.5,
-    marginTop: 1,
+    fontSize: 12,
+    marginTop: 2,
   },
   toneChangeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 6,
     borderRadius: 10,
-    gap: 5,
   },
   toneChangeBtnText: {
-    color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginLeft: 4,
   },
   actionRowBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
   },
   actionRowText: {
     fontSize: 14,
     fontWeight: '700',
   },
   actionRowDesc: {
-    fontSize: 11.5,
-    marginTop: 1,
+    fontSize: 12,
+    marginTop: 2,
   },
   permRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
   },
   permInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
     flex: 1,
   },
   smallPermIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   permTitle: {
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: '700',
   },
   permSub: {
@@ -1718,35 +2082,30 @@ const styles = StyleSheet.create({
   grantedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   grantedText: {
-    fontSize: 12.5,
+    fontSize: 11,
     fontWeight: '700',
+    marginLeft: 4,
   },
   reqBtn: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 10,
+    borderRadius: 8,
   },
   reqBtnText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
   },
-  themeCard: {
-    padding: 10,
-    marginVertical: 4,
-  },
-  themeGrid: {
+  themeOptionsRow: {
     flexDirection: 'row',
-    gap: 8,
-    width: '100%',
+    gap: 10,
   },
-  themeBtnContainer: {
+  themeOptionBtn: {
     flex: 1,
-  },
-  themeOption: {
-    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1758,68 +2117,63 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   logoutCard: {
-    padding: 12,
-    marginVertical: 12,
-    marginBottom: 20,
+    marginTop: 4,
+    borderRadius: 18,
+    padding: 0,
+    overflow: 'hidden',
   },
   logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 15,
     gap: 8,
-    paddingVertical: 8,
   },
   logoutText: {
-    fontSize: 13.5,
+    fontSize: 14,
     fontWeight: '800',
   },
-
-  // ── Floating Toast ────────────────────────────────────────────
   floatingToast: {
     position: 'absolute',
     bottom: 30,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingVertical: 10,
-    borderRadius: 20,
-    elevation: 20,
+    borderRadius: 24,
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    zIndex: 99999,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    zIndex: 999,
   },
   floatingToastText: {
     color: '#FFFFFF',
-    fontSize: 12.5,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '700',
   },
-
-  // ── Modal Styles ──────────────────────────────────────────────
   modalBackdrop: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.72)',
   },
   modalSheet: {
-    maxHeight: '90%',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    borderWidth: 1,
-    paddingTop: 12,
+    borderTopWidth: 1.5,
+    maxHeight: '92%',
   },
   modalHeaderTop: {
     paddingHorizontal: 20,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    paddingTop: 12,
+    paddingBottom: 10,
   },
   modalIndicatorBar: {
     width: 44,
-    height: 4,
-    borderRadius: 2,
+    height: 5,
+    borderRadius: 3,
     alignSelf: 'center',
     marginBottom: 12,
   },
@@ -1830,44 +2184,95 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '900',
     letterSpacing: -0.3,
   },
   modalSubtitle: {
     fontSize: 12,
     marginTop: 2,
-    fontWeight: '500',
+  },
+  modalLiveScorePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    marginRight: 10,
+  },
+  modalLiveScoreText: {
+    fontSize: 12,
+    fontWeight: '900',
   },
   closeModalBtn: {
-    width: 36,
-    height: 36,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stepperNavRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 12,
+  },
+  stepperTab: {
+    flex: 1,
+    paddingVertical: 7,
+    paddingHorizontal: 4,
     borderRadius: 12,
+    borderWidth: 1.2,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  stepperTabHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  stepperDoneDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 3,
+  },
+  stepperTabTitle: {
+    fontSize: 10,
+    marginTop: 2,
+  },
+  modalLinearBarBg: {
+    height: 4,
+    borderRadius: 2,
+    marginTop: 10,
+    overflow: 'hidden',
+  },
+  modalLinearBarFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
   modalScrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 24,
   },
   uploadCard: {
-    borderRadius: 20,
+    borderRadius: 18,
     borderWidth: 1,
     padding: 16,
-    marginBottom: 18,
+    marginBottom: 20,
   },
   uploadAvatarRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
   },
   uploadPreviewBox: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 2,
     overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   uploadPreviewImg: {
     width: '100%',
@@ -1882,63 +2287,58 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   uploadCardDesc: {
-    fontSize: 11.5,
+    fontSize: 11,
     marginTop: 2,
     marginBottom: 8,
   },
   uploadActionsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: 8,
   },
   uploadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 10,
-    gap: 6,
   },
   uploadBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
+    color: '#FFFFFF',
+    marginLeft: 4,
   },
   cameraActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 1,
-    gap: 5,
   },
   cameraActionText: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '700',
+    marginLeft: 4,
   },
   presetAvatarsRow: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
-    paddingTop: 10,
+    marginTop: 14,
   },
   presetLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.6,
     marginBottom: 8,
   },
   presetScroll: {
-    gap: 10,
+    gap: 8,
   },
   presetThumbBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     overflow: 'hidden',
     position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   presetThumbImg: {
     width: '100%',
@@ -1946,48 +2346,118 @@ const styles = StyleSheet.create({
   },
   chosenCheck: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    alignItems: 'center',
+    bottom: 0,
+    right: 0,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     justifyContent: 'center',
+    alignItems: 'center',
   },
   formSection: {
     marginBottom: 18,
   },
+  formSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   formSectionTitle: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '900',
     letterSpacing: 0.8,
-    marginBottom: 10,
+  },
+  sectionValidBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  sectionValidText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#10B981',
   },
   modalFooter: {
     padding: 16,
     borderTopWidth: 1,
   },
+  stepperNavFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  stepperPrevBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 6,
+  },
+  stepperPrevText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  stepperNextBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    gap: 6,
+  },
+  stepperNextText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  stepperSaveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  stepperSaveText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  quickSaveBtn: {
+    alignSelf: 'center',
+    marginTop: 10,
+    paddingVertical: 4,
+  },
+  quickSaveText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.72)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     justifyContent: 'flex-end',
   },
   avatarStudioSheet: {
-    maxHeight: '85%',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    borderWidth: 1,
-    padding: 20,
+    borderTopWidth: 1.5,
+    maxHeight: '85%',
   },
   studioHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    justifyContent: 'space-between',
+    padding: 20,
+    paddingBottom: 12,
   },
   studioTitle: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   studioSubtitle: {
     fontSize: 12,
@@ -1995,21 +2465,22 @@ const styles = StyleSheet.create({
   },
   studioTabsRow: {
     flexDirection: 'row',
+    paddingHorizontal: 20,
     gap: 8,
     marginBottom: 14,
   },
   studioTabBtn: {
     flex: 1,
-    paddingVertical: 9,
+    paddingVertical: 8,
     borderRadius: 12,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   studioTabBtnText: {
     fontSize: 12,
   },
   studioScrollContent: {
-    paddingBottom: 30,
+    padding: 20,
+    paddingTop: 0,
   },
   avatarGrid: {
     flexDirection: 'row',
@@ -2023,16 +2494,11 @@ const styles = StyleSheet.create({
     padding: 12,
     alignItems: 'center',
     position: 'relative',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
   },
   studioCardImg: {
     width: 64,
     height: 64,
-    borderRadius: 20,
+    borderRadius: 32,
     marginBottom: 8,
   },
   studioCardName: {
@@ -2044,42 +2510,42 @@ const styles = StyleSheet.create({
   studioRoleBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: 8,
   },
   studioRoleBadgeText: {
-    fontSize: 9.5,
+    fontSize: 10,
     fontWeight: '800',
   },
   studioSelectedCheck: {
     position: 'absolute',
     top: 8,
     right: 8,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     justifyContent: 'center',
+    alignItems: 'center',
   },
   storagePermissionContainer: {
-    padding: 24,
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
   },
   storageIconShield: {
-    width: 64,
-    height: 64,
-    borderRadius: 22,
-    alignItems: 'center',
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 14,
   },
   storageShieldTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   storageShieldDesc: {
-    fontSize: 12,
+    fontSize: 13,
     textAlign: 'center',
     lineHeight: 18,
     marginBottom: 20,
@@ -2087,15 +2553,13 @@ const styles = StyleSheet.create({
   storageActionRow: {
     flexDirection: 'row',
     gap: 10,
-    width: '100%',
   },
   storageActionBtnPrimary: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
   },
   storageActionBtnPrimaryText: {
     color: '#FFFFFF',
@@ -2103,248 +2567,128 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   storageActionBtnSecondary: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
   },
   storageActionBtnSecondaryText: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
   },
-
-  // ── Camera Viewfinder Modal ───────────────────────────────────
-  cameraModalBackdrop: {
+  cameraBackdrop: {
     flex: 1,
     backgroundColor: '#000000',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cameraViewfinderContainer: {
-    width: '100%',
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 56 : 30,
-    paddingBottom: 40,
+    paddingVertical: 40,
+  },
+  cameraTopControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
   },
-  viewfinderHeader: {
-    flexDirection: 'row',
+  cameraControlCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  viewfinderTitle: {
+  cameraTitleText: {
     color: '#FFFFFF',
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
   },
-  viewfinderSubtitle: {
-    color: '#94A3B8',
-    fontSize: 11.5,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  viewfinderTopActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  viewfinderActionIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeViewfinderBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  viewfinderFrame: {
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: 28,
+  cameraViewfinderBox: {
+    alignSelf: 'center',
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    borderWidth: 3,
+    borderColor: '#6366F1',
     overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
     position: 'relative',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
   },
-  viewfinderLiveImg: {
+  cameraHeroCharacter: {
     width: '100%',
     height: '100%',
-  },
-  targetReticle: {
-    position: 'absolute',
-    top: 24,
-    left: 24,
-    right: 24,
-    bottom: 24,
-  },
-  reticleCornerTL: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 24,
-    height: 24,
-    borderTopWidth: 3,
-    borderLeftWidth: 3,
-    borderColor: '#4ADE80',
-  },
-  reticleCornerTR: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 24,
-    height: 24,
-    borderTopWidth: 3,
-    borderRightWidth: 3,
-    borderColor: '#4ADE80',
-  },
-  reticleCornerBL: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    width: 24,
-    height: 24,
-    borderBottomWidth: 3,
-    borderLeftWidth: 3,
-    borderColor: '#4ADE80',
-  },
-  reticleCornerBR: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 24,
-    height: 24,
-    borderBottomWidth: 3,
-    borderRightWidth: 3,
-    borderColor: '#4ADE80',
   },
   shutterFlash: {
     position: 'absolute',
     top: 0,
-    bottom: 0,
     left: 0,
     right: 0,
+    bottom: 0,
     backgroundColor: '#FFFFFF',
   },
-  viewfinderControls: {
+  cameraBottomControls: {
     alignItems: 'center',
   },
-  viewfinderPrompt: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  lensReelScroll: {
-    gap: 10,
-    paddingHorizontal: 10,
-    marginBottom: 16,
-  },
-  lensThumbCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    overflow: 'hidden',
-    backgroundColor: '#0F172A',
-  },
-  lensThumbImg: {
-    width: '100%',
-    height: '100%',
-  },
-  shutterOuterBtn: {
+  shutterOuterRing: {
     width: 76,
     height: 76,
     borderRadius: 38,
     borderWidth: 4,
     borderColor: '#FFFFFF',
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  shutterInnerBtn: {
+  shutterInnerCircle: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#6366F1',
   },
-
-  // ── Modals & Tone Selection ───────────────────────────────────
-  modalSheetBox: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderWidth: 1,
+  toneSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 20,
-    maxHeight: '75%',
   },
-  modalHeader: {
+  toneHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
-  closeBtn: {
-    padding: 4,
+  toneTitle: {
+    fontSize: 16,
+    fontWeight: '800',
   },
-  toneList: {
-    gap: 8,
-  },
-  toneOptionItem: {
+  toneRow: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    gap: 12,
+    marginBottom: 8,
   },
-  toneOptionTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  toneOptionName: {
-    fontSize: 14,
+  toneName: {
+    fontSize: 13,
     fontWeight: '700',
   },
-  toneOptionDesc: {
-    fontSize: 11.5,
-    marginTop: 2,
+  toneDesc: {
+    fontSize: 11,
+    marginTop: 1,
   },
-  selectedCheck: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewBtn: {
-    padding: 6,
-  },
-  modalOverlayCenter: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    alignItems: 'center',
-    justifyContent: 'center',
+  pwdSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 20,
   },
-  pwdModalSheet: {
-    width: '100%',
-    maxWidth: 360,
-    borderRadius: 24,
-    borderWidth: 1,
-    padding: 20,
+  pwdHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  pwdTitle: {
+    fontSize: 16,
+    fontWeight: '800',
   },
 });
