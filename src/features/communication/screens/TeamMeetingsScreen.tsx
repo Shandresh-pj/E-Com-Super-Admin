@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Alert, TextInput } from "react-native";
 import { ScreenContainer } from "../../../components/common/ScreenContainer";
 import { Header } from "../../../components/common/Header";
@@ -70,8 +70,17 @@ export const TeamMeetingsScreen: React.FC = () => {
     Alert.alert("Cancel Meeting", `Cancel "${m.title}"?`, [
       { text: "No", style: "cancel" },
       { text: "Cancel Meeting", style: "destructive", onPress: async () => {
-        try { await axiosClient.delete(ENDPOINTS.TEAM_MEETING_BY_ID(m.id)); fetchMeetings(true); }
-        catch (e: any) { Alert.alert("Error", e.message || "Action failed."); }
+        try {
+          await axiosClient.post(ENDPOINTS.TEAM_MEETING_END(m.id));
+          fetchMeetings(true);
+        } catch {
+          try {
+            await axiosClient.delete(ENDPOINTS.TEAM_MEETING_BY_ID(m.id));
+            fetchMeetings(true);
+          } catch (e: any) {
+            Alert.alert("Error", e.message || "Action failed.");
+          }
+        }
       }},
     ]);
   };

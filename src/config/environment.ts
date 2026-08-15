@@ -9,7 +9,7 @@ export interface EnvironmentConfig {
 
 // Render.com free-tier backend — cold start can take 25-30 seconds
 const PRODUCTION_API_URL = 'https://new-e-commerce-backend-xt4w.onrender.com/api';
-const Local_API_URL = 'http://10.223.136.159:3000/api';
+const Local_API_URL = 'http://10.215.44.159:3000/api';
 
 export const environment: EnvironmentConfig = {
   apiBaseUrl: __DEV__ ? Local_API_URL : PRODUCTION_API_URL,

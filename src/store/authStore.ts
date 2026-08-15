@@ -21,6 +21,8 @@ export interface UserProfile {
   address?: string;
   cityStatePincode?: string;
   bio?: string;
+  company_id?: number | string | null;
+  companyId?: number | string | null;
   branch_id?: number | string | null;
   branchId?: number | string | null;
   branch?: {

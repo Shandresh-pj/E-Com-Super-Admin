@@ -1,6 +1,7 @@
 import { axiosClient } from '../../../api/axiosClient';
 import { ENDPOINTS } from '../../../api/endpoints';
 import { normalizeApiResponse } from '../../../api/responseNormalizer';
+import { useAuthStore } from '../../../store/authStore';
 
 export interface Employee {
   id: number | string;
@@ -87,19 +88,25 @@ export class EmployeeService {
    * Create a new employee / staff member (POST /employees or POST /auth/create-user)
    */
   static async createEmployee(data: CreateEmployeePayload): Promise<Employee> {
+    const authUser = useAuthStore.getState().user;
+    const companyId = Number(data.company_id || authUser?.company_id || (authUser as any)?.companyId || 1);
+    const branchId = Number(data.branch_id || data.branchId || authUser?.branch_id || (authUser as any)?.branchId || 1);
+    const phoneNum = data.mobilenumber || data.phone || '';
+
     const payload = {
       name: data.name,
       email: data.email,
       password: data.password || 'Staff@12345',
       userType: data.userType || 'Employee',
-      mobilenumber: data.mobilenumber || data.phone || '',
-      company_id: data.company_id,
-      branch_id: data.branch_id || data.branchId || undefined,
-      role_id: data.role_id,
-      employee_code: data.employee_code,
-      department: data.department,
-      designation: data.designation,
-      salary: data.salary != null ? parseFloat(String(data.salary)) : undefined,
+      mobilenumber: phoneNum,
+      mobile: phoneNum,
+      company_id: companyId,
+      branch_id: branchId,
+      role_id: data.role_id || 3,
+      employee_code: data.employee_code || `EMP-${Date.now().toString().slice(-4)}`,
+      department: data.department || 'Operations',
+      designation: data.designation || 'Staff',
+      salary: data.salary != null ? parseFloat(String(data.salary)) : 0,
       working_hours: data.working_hours != null ? parseInt(String(data.working_hours), 10) : 8,
       joining_date: data.joining_date || new Date().toISOString().split('T')[0],
     };

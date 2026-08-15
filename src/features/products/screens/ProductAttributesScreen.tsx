@@ -8,7 +8,6 @@ import {
   ScrollView,
   Alert,
   TextInput,
-  Switch,
   useWindowDimensions,
 } from "react-native";
 import { ScreenContainer } from "../../../components/common/ScreenContainer";
@@ -20,9 +19,9 @@ import { PrimaryButton } from "../../../components/buttons/PrimaryButton";
 import { DashboardSkeleton } from "../../../components/skeletons/SkeletonLoader";
 import { EmptyState, ErrorState } from "../../../components/common/States";
 import { useTheme } from "../../../theme/theme";
+import { useAuthStore } from "../../../store/authStore";
 import { axiosClient } from "../../../api/axiosClient";
 import { ENDPOINTS } from "../../../api/endpoints";
-import { normalizeApiResponse } from "../../../api/responseNormalizer";
 import {
   Sliders,
   Plus,
@@ -31,48 +30,60 @@ import {
   Edit3,
   Trash2,
   Tag,
-  Palette,
   CheckCircle2,
   Layers,
   ChevronRight,
   Sparkles,
+  ArrowRight,
+  List,
+  Code2,
+  ArrowUpDown,
+  Building2,
+  Lock,
 } from "lucide-react-native";
 
 export interface ProductAttribute {
-  id: number | string;
-  Id?: number | string;
-  name: string;
-  Name?: string;
-  type?: string;
-  AttributeNameCode?: string;
-  is_filterable?: boolean;
-  values_count?: number;
-  values?: Array<{ id: number | string; value: string; code?: string }>;
-  created_at?: string;
+  Id: number | string;
+  id?: number | string;
+  CompanyId?: number;
+  AttributeNameCode: string;
+  Name: string;
+  name?: string;
+  CreatedAt?: string;
+  UpdatedAt?: string;
+  ProductAttributeTranslations?: Array<{ LanguagesId: number | null; Name: string }>;
 }
 
 export const ProductAttributesScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const theme = useTheme();
   const c = theme.colors;
   const { width } = useWindowDimensions();
+  const user = useAuthStore((state) => state.user);
+
+  const companyName = user?.officeBranch || "Main Enterprise Corp";
+  const defaultCompanyId = 1;
 
   // State
   const [attributes, setAttributes] = useState<ProductAttribute[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Search & Sorting
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"Id" | "Name" | "AttributeNameCode" | "CreatedAt">("Id");
+  const [sortOrder, setSortOrder] = useState<"ASC" | "DESC">("DESC");
 
   // Modals
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<"add" | "edit">("add");
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedAttr, setSelectedAttr] = useState<ProductAttribute | null>(null);
 
   // Form Fields
   const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [type, setType] = useState<"SELECT" | "COLOR" | "RADIO" | "BUTTON">("SELECT");
-  const [isFilterable, setIsFilterable] = useState(true);
+  const [attributeNameCode, setAttributeNameCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const fetchAttributes = useCallback(async (isRefresh = false) => {
@@ -81,92 +92,107 @@ export const ProductAttributesScreen: React.FC<{ navigation?: any }> = ({ naviga
     setError(null);
 
     try {
-      const res = await axiosClient.get(ENDPOINTS.PRODUCT_ATTRIBUTES);
-      const normalized = normalizeApiResponse<ProductAttribute[]>(res.data);
-      const list = Array.isArray(normalized.data)
-        ? normalized.data
-        : Array.isArray(res.data?.data?.data)
-        ? res.data.data.data
-        : Array.isArray(res.data?.data)
-        ? res.data.data
-        : Array.isArray(res.data)
-        ? res.data
+      const res = await axiosClient.get(ENDPOINTS.PRODUCT_ATTRIBUTES, {
+        params: {
+          page: 1,
+          limit: 100,
+          search: search.trim() || undefined,
+          sortBy,
+          sortOrder,
+        },
+      });
+
+      const responseData = res.data;
+      const rawList = Array.isArray(responseData?.data?.data)
+        ? responseData.data.data
+        : Array.isArray(responseData?.data)
+        ? responseData.data
+        : Array.isArray(responseData)
+        ? responseData
         : [];
 
-      const formatted = list.map((a: any) => ({
-        ...a,
-        id: a.id || a.Id,
-        name: a.name || a.Name || "Unnamed Attribute",
-        type: a.type || "SELECT",
-        is_filterable: a.is_filterable !== undefined ? Boolean(a.is_filterable) : true,
+      const total = responseData?.data?.totalItems || rawList.length;
+      setTotalItems(total);
+
+      const formatted: ProductAttribute[] = rawList.map((a: any) => ({
+        Id: a.Id || a.id,
+        id: a.Id || a.id,
+        CompanyId: a.CompanyId ?? defaultCompanyId,
+        AttributeNameCode: a.AttributeNameCode || a.code || (a.Name || a.name || "").toLowerCase().replace(/[^a-z0-9]/g, "_"),
+        Name: a.Name || a.name || "Unnamed Attribute",
+        name: a.Name || a.name || "Unnamed Attribute",
+        CreatedAt: a.CreatedAt || a.created_at,
+        UpdatedAt: a.UpdatedAt || a.updated_at,
+        ProductAttributeTranslations: a.ProductAttributeTranslations || [{ LanguagesId: null, Name: a.Name || a.name }],
       }));
 
       setAttributes(formatted);
     } catch (e: any) {
-      setError(e.message || "Failed to load product attributes");
+      setError(e.response?.data?.message || e.message || "Failed to load product attributes");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [search, sortBy, sortOrder]);
 
   useEffect(() => {
     fetchAttributes();
   }, [fetchAttributes]);
 
-  // Executive KPI Counts
-  const totalAttributes = attributes.length;
-  const filterableCount = attributes.filter((a) => a.is_filterable).length;
-  const colorTypeCount = attributes.filter((a) => a.type === "COLOR").length;
-
   const openAddModal = () => {
     setModalMode("add");
     setSelectedAttr(null);
     setName("");
-    setCode("");
-    setType("SELECT");
-    setIsFilterable(true);
+    setAttributeNameCode("");
     setModalVisible(true);
   };
 
   const openEditModal = (attr: ProductAttribute) => {
     setModalMode("edit");
     setSelectedAttr(attr);
-    setName(attr.name);
-    setCode(attr.AttributeNameCode || attr.name.toLowerCase().replace(/[^a-z0-9]/g, "_"));
-    setType((attr.type as any) || "SELECT");
-    setIsFilterable(Boolean(attr.is_filterable));
+    setName(attr.Name || attr.name || "");
+    setAttributeNameCode(attr.AttributeNameCode || "");
     setModalVisible(true);
+  };
+
+  const openDetailModal = (attr: ProductAttribute) => {
+    setSelectedAttr(attr);
+    setDetailModalVisible(true);
   };
 
   const handleNameChange = (text: string) => {
     setName(text);
-    if (!code || code === name.toLowerCase().replace(/[^a-z0-9]/g, "_")) {
-      setCode(text.toLowerCase().replace(/[^a-z0-9]/g, "_"));
+    if (!attributeNameCode || attributeNameCode === name.toLowerCase().replace(/[^a-z0-9]/g, "_")) {
+      setAttributeNameCode(text.toLowerCase().replace(/[^a-z0-9]/g, "_"));
     }
   };
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert("Required", "Attribute name is required.");
+      Alert.alert("Required Field", "Please enter the Product Attribute Name.");
       return;
     }
     setSubmitting(true);
     try {
+      const generatedCode = attributeNameCode.trim() || name.trim().toLowerCase().replace(/[^a-z0-9]/g, "_");
+
       const payload = {
-        name: name.trim(),
         Name: name.trim(),
-        AttributeNameCode: code.trim() || name.toLowerCase().replace(/[^a-z0-9]/g, "_"),
-        type: type,
-        is_filterable: isFilterable,
+        name: name.trim(),
+        AttributeNameCode: generatedCode,
+        code: generatedCode,
+        CompanyId: defaultCompanyId,
+        ProductAttributeTranslations: [
+          { LanguagesId: null, Name: name.trim() },
+        ],
       };
 
       if (modalMode === "add") {
         await axiosClient.post(ENDPOINTS.PRODUCT_ATTRIBUTES, payload);
-        Alert.alert("Created", `Attribute "${name}" created successfully.`);
+        Alert.alert("Success", `Product attribute "${name}" created successfully.`);
       } else if (selectedAttr) {
-        await axiosClient.put(ENDPOINTS.PRODUCT_ATTRIBUTE_BY_ID(selectedAttr.id), payload);
-        Alert.alert("Updated", `Attribute "${name}" updated successfully.`);
+        await axiosClient.put(ENDPOINTS.PRODUCT_ATTRIBUTE_BY_ID(selectedAttr.Id), payload);
+        Alert.alert("Success", `Product attribute "${name}" updated successfully.`);
       }
 
       setModalVisible(false);
@@ -181,7 +207,7 @@ export const ProductAttributesScreen: React.FC<{ navigation?: any }> = ({ naviga
   const handleDelete = (attr: ProductAttribute) => {
     Alert.alert(
       "Delete Attribute",
-      `Delete "${attr.name}" and all its assigned options?`,
+      `Are you sure you want to delete "${attr.Name}"? All linked attribute values will be removed.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -189,10 +215,11 @@ export const ProductAttributesScreen: React.FC<{ navigation?: any }> = ({ naviga
           style: "destructive",
           onPress: async () => {
             try {
-              await axiosClient.delete(ENDPOINTS.PRODUCT_ATTRIBUTE_BY_ID(attr.id));
+              await axiosClient.delete(ENDPOINTS.PRODUCT_ATTRIBUTE_BY_ID(attr.Id));
+              Alert.alert("Deleted", "Product attribute deleted successfully.");
               fetchAttributes(true);
             } catch (e: any) {
-              Alert.alert("Error", e.response?.data?.message || e.message || "Delete failed.");
+              Alert.alert("Delete Failed", e.response?.data?.message || e.message || "Cannot delete attribute.");
             }
           },
         },
@@ -200,22 +227,21 @@ export const ProductAttributesScreen: React.FC<{ navigation?: any }> = ({ naviga
     );
   };
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return attributes;
-    const q = search.toLowerCase();
-    return attributes.filter(
-      (a) =>
-        String(a.name || "").toLowerCase().includes(q) ||
-        String(a.type || "").toLowerCase().includes(q)
-    );
-  }, [attributes, search]);
+  const handleNavigateToValues = (attr: ProductAttribute) => {
+    if (navigation?.navigate) {
+      navigation.navigate("AttributeValues", {
+        attributeId: attr.Id,
+        attributeName: attr.Name,
+      });
+    }
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <ScreenContainer scrollable refreshing={refreshing} onRefresh={() => fetchAttributes(true)}>
         <Header
           title="Product Attributes"
-          subtitle={`${totalAttributes} Master Attributes Defined`}
+          subtitle={`${totalItems || attributes.length} Defined Master Attributes`}
           rightAction={
             <TouchableOpacity
               onPress={openAddModal}
@@ -228,126 +254,205 @@ export const ProductAttributesScreen: React.FC<{ navigation?: any }> = ({ naviga
           }
         />
 
-        {/* ── 1. Executive Attribute KPI Strip ───────────────────────── */}
+        {/* ── 1. KPI Metric Strip ──────────────────────────────────── */}
         <View style={styles.kpiRow}>
           <View style={[styles.kpiBox, { backgroundColor: theme.isDark ? "#0F172A" : "#F8FAFC", borderColor: c.border }]}>
-            <Sliders size={14} color={c.primary} style={{ marginBottom: 4 }} />
-            <Text style={[styles.kpiVal, { color: c.textPrimary }]}>{totalAttributes}</Text>
-            <Text style={[styles.kpiSub, { color: c.textMuted }]}>TOTAL</Text>
+            <Sliders size={15} color={c.primary} style={{ marginBottom: 4 }} />
+            <Text style={[styles.kpiVal, { color: c.textPrimary }]}>{totalItems || attributes.length}</Text>
+            <Text style={[styles.kpiSub, { color: c.textMuted }]}>TOTAL ATTRIBUTES</Text>
           </View>
 
           <View style={[styles.kpiBox, { backgroundColor: theme.isDark ? "#0F172A" : "#F8FAFC", borderColor: c.border }]}>
-            <CheckCircle2 size={14} color="#10B981" style={{ marginBottom: 4 }} />
-            <Text style={[styles.kpiVal, { color: "#10B981" }]}>{filterableCount}</Text>
-            <Text style={[styles.kpiSub, { color: c.textMuted }]}>FILTERABLE</Text>
+            <Code2 size={15} color="#10B981" style={{ marginBottom: 4 }} />
+            <Text style={[styles.kpiVal, { color: "#10B981" }]}>{attributes.length}</Text>
+            <Text style={[styles.kpiSub, { color: c.textMuted }]}>ACTIVE CODES</Text>
           </View>
 
           <View style={[styles.kpiBox, { backgroundColor: theme.isDark ? "#0F172A" : "#F8FAFC", borderColor: c.border }]}>
-            <Palette size={14} color={c.accent} style={{ marginBottom: 4 }} />
-            <Text style={[styles.kpiVal, { color: c.textPrimary }]}>{colorTypeCount}</Text>
-            <Text style={[styles.kpiSub, { color: c.textMuted }]}>COLOR SWATCH</Text>
+            <Building2 size={15} color={c.accent} style={{ marginBottom: 4 }} />
+            <Text style={[styles.kpiVal, { color: c.textPrimary }]} numberOfLines={1}>{companyName}</Text>
+            <Text style={[styles.kpiSub, { color: c.textMuted }]}>COMPANY CONTEXT</Text>
           </View>
         </View>
 
-        {/* ── 2. Search Box ────────────────────────────────────────── */}
+        {/* ── 2. Search & Sort Bar ─────────────────────────────────── */}
         <View style={[styles.searchBox, { backgroundColor: theme.isDark ? "#0F172A" : "#F8FAFC", borderColor: c.border }]}>
           <Search size={18} color={c.textMuted} />
           <TextInput
-            placeholder="Search attributes (e.g. Size, Color, Memory)..."
+            placeholder="Search attributes by Name or AttributeNameCode..."
             placeholderTextColor={c.textMuted}
             value={search}
             onChangeText={setSearch}
             style={[styles.searchInput, { color: c.textPrimary }]}
           />
           {search ? (
-            <TouchableOpacity onPress={() => setSearch("")}>
+            <TouchableOpacity onPress={() => setSearch("")} style={{ padding: 4 }}>
               <X size={16} color={c.textMuted} />
             </TouchableOpacity>
           ) : null}
+          <TouchableOpacity
+            onPress={() => setSortOrder(sortOrder === "ASC" ? "DESC" : "ASC")}
+            style={[styles.sortBtn, { backgroundColor: theme.isDark ? "#1E293B" : "#EEF2FF", borderColor: c.primary }]}
+            activeOpacity={0.7}
+          >
+            <ArrowUpDown size={14} color={c.primary} />
+          </TouchableOpacity>
         </View>
 
         {/* ── 3. Attribute Cards List ──────────────────────────────── */}
         {loading && !refreshing ? (
           <DashboardSkeleton />
-        ) : error ? (
+        ) : error && attributes.length === 0 ? (
           <ErrorState message={error} onRetry={() => fetchAttributes()} />
-        ) : filtered.length === 0 ? (
+        ) : attributes.length === 0 ? (
           <EmptyState
             title="No Attributes Found"
-            description="Create attributes like Size, Color, or Material to configure product variants."
+            description="Add product attributes such as Size, Color, or Material."
           />
         ) : (
-          filtered.map((item) => (
-            <Card key={String(item.id)} style={styles.card}>
-              <View style={styles.cardRow}>
-                {/* Icon Box */}
-                <View
-                  style={[
-                    styles.iconBox,
-                    {
-                      backgroundColor:
-                        item.type === "COLOR"
-                          ? "rgba(168, 85, 247, 0.15)"
-                          : theme.isDark
-                          ? "rgba(99, 102, 241, 0.15)"
-                          : "#EEF2FF",
-                    },
-                  ]}
-                >
-                  {item.type === "COLOR" ? (
-                    <Palette size={18} color="#A855F7" />
-                  ) : (
+          attributes.map((item) => (
+            <Card key={String(item.Id)} style={styles.card}>
+              <TouchableOpacity activeOpacity={0.9} onPress={() => openDetailModal(item)}>
+                <View style={styles.cardRow}>
+                  {/* Icon Box */}
+                  <View
+                    style={[
+                      styles.iconBox,
+                      {
+                        backgroundColor: theme.isDark ? "rgba(99, 102, 241, 0.15)" : "#EEF2FF",
+                      },
+                    ]}
+                  >
                     <Sliders size={18} color={c.primary} />
-                  )}
-                </View>
-
-                {/* Details Column */}
-                <View style={{ flex: 1 }}>
-                  <View style={styles.titleRow}>
-                    <Text style={[styles.attrName, { color: c.textPrimary }]}>{item.name}</Text>
-                    <Badge
-                      label={item.is_filterable ? "FILTERABLE" : "STANDARD"}
-                      variant={item.is_filterable ? "success" : "primary"}
-                      size="sm"
-                    />
                   </View>
 
-                  <View style={styles.metaRow}>
-                    <Tag size={11} color={c.textMuted} />
-                    <Text style={[styles.metaText, { color: c.textMuted }]}>
-                      Type: {item.type || "SELECT"}
-                    </Text>
-                    {item.values_count !== undefined && (
+                  {/* Details Column */}
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.titleRow}>
+                      <Text style={[styles.attrName, { color: c.textPrimary }]}>{item.Name}</Text>
+                      <Badge label={`ID: #${item.Id}`} variant="primary" size="sm" />
+                    </View>
+
+                    <View style={styles.metaRow}>
+                      <Code2 size={11} color={c.textMuted} />
                       <Text style={[styles.metaText, { color: c.textMuted }]}>
-                        • {item.values_count} Values
+                        Code: {item.AttributeNameCode}
                       </Text>
-                    )}
+                      <Text style={[styles.metaText, { color: c.textMuted }]}>
+                        • {companyName}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Actions */}
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      onPress={() => openEditModal(item)}
+                      style={[styles.actionBtn, { backgroundColor: theme.isDark ? "#1E293B" : "#EEF2FF" }]}
+                      activeOpacity={0.7}
+                    >
+                      <Edit3 size={13} color={c.primary} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => handleDelete(item)}
+                      style={[styles.actionBtn, { backgroundColor: theme.isDark ? "#1E293B" : "#FEE2E2" }]}
+                      activeOpacity={0.7}
+                    >
+                      <Trash2 size={13} color="#EF4444" />
+                    </TouchableOpacity>
                   </View>
                 </View>
+              </TouchableOpacity>
 
-                {/* Quick Action Buttons */}
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    onPress={() => openEditModal(item)}
-                    style={[styles.actionBtn, { backgroundColor: theme.isDark ? "#1E293B" : "#EEF2FF" }]}
-                    activeOpacity={0.7}
-                  >
-                    <Edit3 size={13} color={c.primary} />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => handleDelete(item)}
-                    style={[styles.actionBtn, { backgroundColor: theme.isDark ? "#1E293B" : "#FEE2E2" }]}
-                    activeOpacity={0.7}
-                  >
-                    <Trash2 size={13} color="#EF4444" />
-                  </TouchableOpacity>
+              {/* Bottom Card Footer: Navigate to Discrete Values */}
+              <TouchableOpacity
+                onPress={() => handleNavigateToValues(item)}
+                style={[styles.cardFooterBar, { backgroundColor: theme.isDark ? "#131E33" : "#F8FAFC", borderColor: c.border }]}
+                activeOpacity={0.75}
+              >
+                <View style={styles.footerLeft}>
+                  <List size={13} color={c.primary} />
+                  <Text style={[styles.footerText, { color: c.textPrimary }]}>
+                    Manage Discrete Option Values
+                  </Text>
                 </View>
-              </View>
+                <ChevronRight size={14} color={c.textMuted} />
+              </TouchableOpacity>
             </Card>
           ))
         )}
       </ScreenContainer>
+
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {/* ── ATTRIBUTE SPECIFICATION DETAIL MODAL ───────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
+      <Modal
+        visible={detailModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setDetailModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { backgroundColor: theme.isDark ? "#0B0F19" : "#FFFFFF", borderColor: c.border }]}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={[styles.modalTitle, { color: c.textPrimary }]}>Product Attribute Details</Text>
+                <Text style={[styles.modalSubtitle, { color: c.textMuted }]}>
+                  API Resource: /product-attributes/{selectedAttr?.Id}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setDetailModalVisible(false)}
+                style={[styles.closeBtn, { backgroundColor: theme.isDark ? "#1E293B" : "#F1F5F9" }]}
+              >
+                <X size={18} color={c.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedAttr && (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+                <View style={[styles.specGrid, { backgroundColor: theme.isDark ? "#0F172A" : "#F8FAFC", borderColor: c.border }]}>
+                  <View style={styles.specRow}>
+                    <Text style={[styles.specLabel, { color: c.textMuted }]}>Attribute ID (Id)</Text>
+                    <Text style={[styles.specValue, { color: c.textPrimary }]}>#{selectedAttr.Id}</Text>
+                  </View>
+                  <View style={styles.specRow}>
+                    <Text style={[styles.specLabel, { color: c.textMuted }]}>Attribute Name (Name)</Text>
+                    <Text style={[styles.specValue, { color: c.textPrimary }]}>{selectedAttr.Name}</Text>
+                  </View>
+                  <View style={styles.specRow}>
+                    <Text style={[styles.specLabel, { color: c.textMuted }]}>Identifier Code (AttributeNameCode)</Text>
+                    <Text style={[styles.specValue, { color: c.primary }]}>{selectedAttr.AttributeNameCode}</Text>
+                  </View>
+                  <View style={styles.specRow}>
+                    <Text style={[styles.specLabel, { color: c.textMuted }]}>Assigned Company</Text>
+                    <Text style={[styles.specValue, { color: c.textPrimary }]}>{companyName} (ID: #{selectedAttr.CompanyId || defaultCompanyId})</Text>
+                  </View>
+                  {selectedAttr.CreatedAt && (
+                    <View style={styles.specRow}>
+                      <Text style={[styles.specLabel, { color: c.textMuted }]}>Created At</Text>
+                      <Text style={[styles.specValue, { color: c.textSecondary }]}>
+                        {new Date(selectedAttr.CreatedAt).toLocaleString()}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                <View style={{ marginTop: 16 }}>
+                  <PrimaryButton
+                    title="View & Configure Option Values"
+                    onPress={() => {
+                      setDetailModalVisible(false);
+                      handleNavigateToValues(selectedAttr);
+                    }}
+                  />
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* ══════════════════════════════════════════════════════════════ */}
       {/* ── ADD / EDIT ATTRIBUTE MODAL ─────────────────────────────── */}
@@ -363,10 +468,10 @@ export const ProductAttributesScreen: React.FC<{ navigation?: any }> = ({ naviga
             <View style={styles.modalHeader}>
               <View>
                 <Text style={[styles.modalTitle, { color: c.textPrimary }]}>
-                  {modalMode === "add" ? "Create Product Attribute" : "Edit Attribute"}
+                  {modalMode === "add" ? "Create Product Attribute" : "Edit Product Attribute"}
                 </Text>
                 <Text style={[styles.modalSubtitle, { color: c.textMuted }]}>
-                  Configure variant option attributes
+                  REST API: POST /product-attributes
                 </Text>
               </View>
               <TouchableOpacity
@@ -379,64 +484,50 @@ export const ProductAttributesScreen: React.FC<{ navigation?: any }> = ({ naviga
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
               <TextField
-                label="Attribute Name *"
-                placeholder="e.g. Size, Color, Material, Storage"
+                label="Product Attribute Name (Name) *"
+                placeholder="e.g. Color, Size, Storage, Material"
                 value={name}
                 onChangeText={handleNameChange}
               />
 
               <TextField
-                label="Attribute Code"
-                placeholder="e.g. size, color, storage_capacity"
-                value={code}
-                onChangeText={setCode}
+                label="Attribute Identifier Code (AttributeNameCode)"
+                placeholder="e.g. color, size, storage_capacity"
+                value={attributeNameCode}
+                onChangeText={setAttributeNameCode}
               />
 
-              {/* Type Selector Pills */}
-              <View style={styles.typeSection}>
-                <Text style={[styles.typeLabel, { color: c.textSecondary }]}>Display UI Type</Text>
-                <View style={styles.typePillsRow}>
-                  {(["SELECT", "COLOR", "RADIO", "BUTTON"] as const).map((t) => {
-                    const isSelected = type === t;
-                    return (
-                      <TouchableOpacity
-                        key={t}
-                        onPress={() => setType(t)}
-                        style={[
-                          styles.typePill,
-                          {
-                            backgroundColor: isSelected ? c.primary : theme.isDark ? "#1E293B" : "#F1F5F9",
-                            borderColor: isSelected ? c.primary : c.border,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.typePillText, { color: isSelected ? "#FFFFFF" : c.textSecondary }]}>
-                          {t}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+              {/* ── Disabled Company Input with Company Name ────────── */}
+              <View style={styles.disabledInputContainer}>
+                <Text style={[styles.fieldLabel, { color: c.textSecondary }]}>Company (CompanyId)</Text>
+                <View
+                  style={[
+                    styles.disabledInputBox,
+                    {
+                      backgroundColor: theme.isDark ? "#0F172A" : "#F1F5F9",
+                      borderColor: c.border,
+                    },
+                  ]}
+                >
+                  <View style={styles.companyRow}>
+                    <Building2 size={16} color={c.primary} />
+                    <Text style={[styles.companyText, { color: c.textPrimary }]}>
+                      {companyName}
+                    </Text>
+                  </View>
+                  <View style={[styles.lockBadge, { backgroundColor: theme.isDark ? "#1E293B" : "#E2E8F0" }]}>
+                    <Lock size={12} color={c.textMuted} />
+                    <Text style={[styles.lockBadgeText, { color: c.textMuted }]}>Auto-Assigned (ID: #{defaultCompanyId})</Text>
+                  </View>
                 </View>
-              </View>
-
-              <View style={[styles.switchRow, { backgroundColor: theme.isDark ? "#0F172A" : "#F8FAFC", borderColor: c.border }]}>
-                <View>
-                  <Text style={[styles.switchTitle, { color: c.textPrimary }]}>Filterable in Storefront</Text>
-                  <Text style={[styles.switchSubtitle, { color: c.textMuted }]}>
-                    Allow customers to filter products by this attribute
-                  </Text>
-                </View>
-                <Switch
-                  value={isFilterable}
-                  onValueChange={setIsFilterable}
-                  trackColor={{ true: c.primary, false: theme.isDark ? "#334155" : "#CBD5E1" }}
-                  thumbColor="#FFFFFF"
-                />
+                <Text style={[styles.helperText, { color: c.textMuted }]}>
+                  Company context is fixed based on your organization account.
+                </Text>
               </View>
 
               <View style={{ marginTop: 16 }}>
                 <PrimaryButton
-                  title={submitting ? "Saving..." : modalMode === "add" ? "Create Attribute" : "Save Changes"}
+                  title={submitting ? "Saving..." : modalMode === "add" ? "Create Product Attribute" : "Save Changes"}
                   onPress={handleSave}
                   disabled={submitting}
                 />
@@ -499,6 +590,14 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
   },
+  sortBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   card: {
     marginVertical: 4,
     padding: 14,
@@ -548,6 +647,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  cardFooterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  footerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  footerText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.65)",
@@ -581,44 +699,68 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  typeSection: {
+  specGrid: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    gap: 12,
     marginVertical: 8,
   },
-  typeLabel: {
+  specRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  specLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  specValue: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  disabledInputContainer: {
+    marginVertical: 8,
+  },
+  fieldLabel: {
     fontSize: 12,
     fontWeight: "700",
     marginBottom: 6,
   },
-  typePillsRow: {
+  disabledInputBox: {
     flexDirection: "row",
-    gap: 6,
-  },
-  typePill: {
-    flex: 1,
-    paddingVertical: 9,
-    borderRadius: 10,
-    borderWidth: 1,
     alignItems: "center",
-  },
-  typePillText: {
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  switchRow: {
-    flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    padding: 12,
-    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
     borderWidth: 1,
-    marginVertical: 10,
   },
-  switchTitle: {
+  companyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  companyText: {
     fontSize: 13,
     fontWeight: "800",
   },
-  switchSubtitle: {
+  lockBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
+  },
+  lockBadgeText: {
     fontSize: 10,
-    marginTop: 2,
+    fontWeight: "700",
+  },
+  helperText: {
+    fontSize: 10,
+    marginTop: 4,
+    marginLeft: 2,
   },
 });

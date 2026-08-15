@@ -19,9 +19,9 @@ import { PrimaryButton } from "../../../components/buttons/PrimaryButton";
 import { DashboardSkeleton } from "../../../components/skeletons/SkeletonLoader";
 import { EmptyState, ErrorState } from "../../../components/common/States";
 import { useTheme } from "../../../theme/theme";
+import { useAuthStore } from "../../../store/authStore";
 import { axiosClient } from "../../../api/axiosClient";
 import { ENDPOINTS } from "../../../api/endpoints";
-import { normalizeApiResponse } from "../../../api/responseNormalizer";
 import {
   List,
   Plus,
@@ -33,46 +33,79 @@ import {
   CheckCircle2,
   Layers,
   Sparkles,
+  ArrowUpDown,
+  Tag,
+  Code2,
+  Building2,
+  Lock,
 } from "lucide-react-native";
 import { ProductAttribute } from "./ProductAttributesScreen";
 
-export interface AttributeValue {
-  id: number | string;
-  Id?: number | string;
+export interface ProductAttributeValue {
+  Id: number | string;
+  id?: number | string;
+  CompanyId?: number;
+  ProductAttributeId: number | string;
   attribute_id?: number | string;
-  ProductAttributeId?: number | string;
-  attribute_name?: string;
-  value: string;
-  Value?: string;
-  Name?: string;
+  AttributeValueCode: string;
   code?: string;
-  ColorHexCode?: string;
-  sort_order?: number;
+  Name: string;
+  name?: string;
+  attribute_name?: string;
+  product_ids?: number[];
+  CreatedAt?: string;
+  UpdatedAt?: string;
+  ProductAttributeValueTranslations?: Array<{ LanguagesId: number | null; Name: string }>;
 }
 
-export const AttributeValuesScreen: React.FC = () => {
+const COLOR_PRESETS = [
+  { name: "Navy Blue", hex: "#1E3A8A" },
+  { name: "Royal Blue", hex: "#2563EB" },
+  { name: "Emerald Green", hex: "#059669" },
+  { name: "Crimson Red", hex: "#DC2626" },
+  { name: "Amber Gold", hex: "#D97706" },
+  { name: "Amethyst Purple", hex: "#7C3AED" },
+  { name: "Rose Pink", hex: "#E11D48" },
+  { name: "Teal Cyan", hex: "#0D9488" },
+  { name: "Charcoal Black", hex: "#111827" },
+  { name: "Slate Grey", hex: "#64748B" },
+  { name: "Pure White", hex: "#FFFFFF" },
+];
+
+export const AttributeValuesScreen: React.FC<{ route?: any; navigation?: any }> = ({ route, navigation }) => {
   const theme = useTheme();
   const c = theme.colors;
   const { width } = useWindowDimensions();
+  const user = useAuthStore((state) => state.user);
+
+  const companyName = user?.officeBranch || "Main Enterprise Corp";
+  const defaultCompanyId = 1;
+
+  const initialAttributeId = route?.params?.attributeId || "ALL";
 
   // State
-  const [values, setValues] = useState<AttributeValue[]>([]);
+  const [values, setValues] = useState<ProductAttributeValue[]>([]);
   const [attributes, setAttributes] = useState<ProductAttribute[]>([]);
-  const [selectedAttributeFilter, setSelectedAttributeFilter] = useState<string | number>("ALL");
+  const [selectedAttributeFilter, setSelectedAttributeFilter] = useState<string | number>(initialAttributeId);
+  const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Search & Sorting
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"Id" | "AttributeValueCode" | "Name" | "CreatedAt">("Id");
+  const [sortOrder, setSortOrder] = useState<"ASC" | "DESC">("DESC");
 
   // Modals
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<"add" | "edit">("add");
-  const [selectedVal, setSelectedVal] = useState<AttributeValue | null>(null);
+  const [selectedVal, setSelectedVal] = useState<ProductAttributeValue | null>(null);
 
-  // Form Fields
-  const [attrId, setAttrId] = useState<string | number | null>(null);
-  const [valText, setValText] = useState("");
-  const [valCode, setValCode] = useState("");
+  // Specific API Required Fields
+  const [productAttributeId, setProductAttributeId] = useState<string | number | null>(null);
+  const [name, setName] = useState("");
+  const [attributeValueCode, setAttributeValueCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const fetchValuesAndAttributes = useCallback(async (isRefresh = false) => {
@@ -82,14 +115,22 @@ export const AttributeValuesScreen: React.FC = () => {
 
     try {
       const [valRes, attrRes] = await Promise.all([
-        axiosClient.get(ENDPOINTS.ATTRIBUTE_VALUES).catch(() => ({ data: [] })),
-        axiosClient.get(ENDPOINTS.PRODUCT_ATTRIBUTES).catch(() => ({ data: [] })),
+        axiosClient.get(ENDPOINTS.PRODUCT_ATTRIBUTE_VALUES, {
+          params: {
+            page: 1,
+            limit: 100,
+            ProductAttributeId: selectedAttributeFilter !== "ALL" ? selectedAttributeFilter : undefined,
+            search: search.trim() || undefined,
+            sortBy,
+            sortOrder,
+          },
+        }).catch(() => ({ data: { data: { data: [] } } })),
+        axiosClient.get(ENDPOINTS.PRODUCT_ATTRIBUTES, {
+          params: { page: 1, limit: 100 },
+        }).catch(() => ({ data: { data: { data: [] } } })),
       ]);
 
-      const normVals = normalizeApiResponse<AttributeValue[]>(valRes.data);
-      const valList = Array.isArray(normVals.data)
-        ? normVals.data
-        : Array.isArray(valRes.data?.data?.data)
+      const valRaw = Array.isArray(valRes.data?.data?.data)
         ? valRes.data.data.data
         : Array.isArray(valRes.data?.data)
         ? valRes.data.data
@@ -97,10 +138,9 @@ export const AttributeValuesScreen: React.FC = () => {
         ? valRes.data
         : [];
 
-      const normAttrs = normalizeApiResponse<ProductAttribute[]>(attrRes.data);
-      const attrList = Array.isArray(normAttrs.data)
-        ? normAttrs.data
-        : Array.isArray(attrRes.data?.data?.data)
+      setTotalItems(valRes.data?.data?.totalItems || valRaw.length);
+
+      const attrRaw = Array.isArray(attrRes.data?.data?.data)
         ? attrRes.data.data.data
         : Array.isArray(attrRes.data?.data)
         ? attrRes.data.data
@@ -108,104 +148,140 @@ export const AttributeValuesScreen: React.FC = () => {
         ? attrRes.data
         : [];
 
-      const formattedVals = valList.map((v: any) => ({
-        ...v,
-        id: v.id || v.Id,
-        value: v.value || v.Value || v.Name || "Unnamed Option",
-        attribute_id: v.attribute_id || v.ProductAttributeId,
-        code: v.code || v.ColorHexCode,
+      const formattedAttrs: ProductAttribute[] = attrRaw.map((a: any) => ({
+        Id: a.Id || a.id,
+        id: a.Id || a.id,
+        Name: a.Name || a.name || "Attribute",
+        name: a.Name || a.name || "Attribute",
+        AttributeNameCode: a.AttributeNameCode || a.code || "",
       }));
 
-      const formattedAttrs = attrList.map((a: any) => ({
-        ...a,
-        id: a.id || a.Id,
-        name: a.name || a.Name || "Attribute",
-      }));
+      const formattedVals: ProductAttributeValue[] = valRaw.map((v: any) => {
+        const pAttr = formattedAttrs.find((a) => String(a.Id) === String(v.ProductAttributeId || v.attribute_id));
+        return {
+          Id: v.Id || v.id,
+          id: v.Id || v.id,
+          CompanyId: v.CompanyId ?? defaultCompanyId,
+          ProductAttributeId: v.ProductAttributeId || v.attribute_id,
+          attribute_id: v.ProductAttributeId || v.attribute_id,
+          AttributeValueCode: v.AttributeValueCode || v.code || v.ColorHexCode || "",
+          code: v.AttributeValueCode || v.code || v.ColorHexCode || "",
+          Name: v.Name || v.name || v.value || "Unnamed Value",
+          name: v.Name || v.name || v.value || "Unnamed Value",
+          attribute_name: v.attribute_name || pAttr?.Name || "",
+          product_ids: Array.isArray(v.product_ids) ? v.product_ids : [],
+          CreatedAt: v.CreatedAt || v.created_at,
+          UpdatedAt: v.UpdatedAt || v.updated_at,
+          ProductAttributeValueTranslations: v.ProductAttributeValueTranslations || [
+            { LanguagesId: null, Name: v.Name || v.name || v.value },
+          ],
+        };
+      });
 
       setValues(formattedVals);
       setAttributes(formattedAttrs);
-      if (!attrId && formattedAttrs.length > 0) {
-        setAttrId(formattedAttrs[0].id);
+
+      if (!productAttributeId && formattedAttrs.length > 0) {
+        setProductAttributeId(formattedAttrs[0].Id);
       }
     } catch (e: any) {
-      setError(e.message || "Failed to load attribute values");
+      setError(e.response?.data?.message || e.message || "Failed to load attribute values");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [attrId]);
+  }, [selectedAttributeFilter, search, sortBy, sortOrder, productAttributeId]);
 
   useEffect(() => {
     fetchValuesAndAttributes();
   }, [fetchValuesAndAttributes]);
 
   // Executive KPI Counts
-  const totalValues = values.length;
-  const colorSwatchCount = values.filter((v) => v.code?.startsWith("#")).length;
+  const totalValues = totalItems || values.length;
+  const colorSwatchCount = values.filter((v) => v.AttributeValueCode?.startsWith("#")).length;
   const linkedAttributesCount = attributes.length;
 
   const openAddModal = () => {
     setModalMode("add");
     setSelectedVal(null);
-    setValText("");
-    setValCode("");
+    setName("");
+    setAttributeValueCode("");
     if (attributes.length > 0 && selectedAttributeFilter !== "ALL") {
-      setAttrId(selectedAttributeFilter);
+      setProductAttributeId(selectedAttributeFilter);
     } else if (attributes.length > 0) {
-      setAttrId(attributes[0].id);
+      setProductAttributeId(attributes[0].Id);
     }
     setModalVisible(true);
   };
 
-  const openEditModal = (item: AttributeValue) => {
+  const openEditModal = (item: ProductAttributeValue) => {
     setModalMode("edit");
     setSelectedVal(item);
-    setValText(item.value);
-    setValCode(item.code || "");
-    setAttrId(item.attribute_id || (attributes[0]?.id ?? null));
+    setName(item.Name);
+    setAttributeValueCode(item.AttributeValueCode || "");
+    setProductAttributeId(item.ProductAttributeId || (attributes[0]?.Id ?? null));
     setModalVisible(true);
+  };
+
+  const handleSelectColorPreset = (preset: { name: string; hex: string }) => {
+    setAttributeValueCode(preset.hex);
+    if (!name || COLOR_PRESETS.some((p) => p.name === name)) {
+      setName(preset.name);
+    }
   };
 
   const handleSave = async () => {
-    if (!valText.trim()) {
-      Alert.alert("Required", "Value name is required.");
+    if (!name.trim()) {
+      Alert.alert("Required Field", "Please enter the Option Value Name.");
       return;
     }
+    if (!productAttributeId) {
+      Alert.alert("Required Field", "Please select a target Product Attribute.");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const payload: any = {
-        value: valText.trim(),
-        Name: valText.trim(),
-        Value: valText.trim(),
-        code: valCode.trim(),
-        ColorHexCode: valCode.trim(),
+      const generatedCode = attributeValueCode.trim() || name.trim().toLowerCase().replace(/[^a-z0-9]/g, "_");
+
+      const payload = {
+        ProductAttributeId: Number(productAttributeId),
+        attribute_id: Number(productAttributeId),
+        Name: name.trim(),
+        name: name.trim(),
+        Value: name.trim(),
+        value: name.trim(),
+        AttributeValueCode: generatedCode,
+        code: generatedCode,
+        ColorHexCode: attributeValueCode.trim(),
+        CompanyId: defaultCompanyId,
+        ProductAttributeValueTranslations: [
+          { LanguagesId: null, Name: name.trim() },
+        ],
+        product_ids: selectedVal?.product_ids || [],
       };
-      if (attrId) {
-        payload.attribute_id = attrId;
-        payload.ProductAttributeId = attrId;
-      }
 
       if (modalMode === "add") {
-        await axiosClient.post(ENDPOINTS.ATTRIBUTE_VALUES, payload);
-        Alert.alert("Created", `Value "${valText}" added.`);
+        await axiosClient.post(ENDPOINTS.PRODUCT_ATTRIBUTE_VALUES, payload);
+        Alert.alert("Success", `Option value "${name}" added successfully.`);
       } else if (selectedVal) {
-        await axiosClient.put(`${ENDPOINTS.ATTRIBUTE_VALUES}/${selectedVal.id}`, payload);
-        Alert.alert("Updated", `Value "${valText}" updated.`);
+        await axiosClient.put(ENDPOINTS.PRODUCT_ATTRIBUTE_VALUE_BY_ID(selectedVal.Id), payload);
+        Alert.alert("Success", `Option value "${name}" updated successfully.`);
       }
 
       setModalVisible(false);
       fetchValuesAndAttributes(true);
     } catch (e: any) {
-      Alert.alert("Error", e.response?.data?.message || e.message || "Operation failed.");
+      Alert.alert("Error", e.response?.data?.message || e.message || "Failed to save option value.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = (item: AttributeValue) => {
+  const handleDelete = (item: ProductAttributeValue) => {
     Alert.alert(
-      "Delete Value",
-      `Delete option value "${item.value}"?`,
+      "Delete Option Value",
+      `Delete "${item.Name}"?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -213,38 +289,17 @@ export const AttributeValuesScreen: React.FC = () => {
           style: "destructive",
           onPress: async () => {
             try {
-              await axiosClient.delete(`${ENDPOINTS.ATTRIBUTE_VALUES}/${item.id}`);
+              await axiosClient.delete(ENDPOINTS.PRODUCT_ATTRIBUTE_VALUE_BY_ID(item.Id));
+              Alert.alert("Deleted", "Option value deleted successfully.");
               fetchValuesAndAttributes(true);
             } catch (e: any) {
-              Alert.alert("Error", e.response?.data?.message || e.message || "Delete failed.");
+              Alert.alert("Delete Failed", e.response?.data?.message || e.message || "Cannot delete value.");
             }
           },
         },
       ]
     );
   };
-
-  // Filtered list
-  const filtered = useMemo(() => {
-    return values.filter((v) => {
-      // Attribute filter
-      if (selectedAttributeFilter !== "ALL") {
-        if (String(v.attribute_id) !== String(selectedAttributeFilter)) {
-          return false;
-        }
-      }
-      // Search
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        return (
-          String(v.value || "").toLowerCase().includes(q) ||
-          String(v.code || "").toLowerCase().includes(q) ||
-          String(v.attribute_name || "").toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [values, selectedAttributeFilter, search]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -285,21 +340,28 @@ export const AttributeValuesScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* ── 2. Search Box ────────────────────────────────────────── */}
+        {/* ── 2. Search & Sort Bar ─────────────────────────────────── */}
         <View style={[styles.searchBox, { backgroundColor: theme.isDark ? "#0F172A" : "#F8FAFC", borderColor: c.border }]}>
           <Search size={18} color={c.textMuted} />
           <TextInput
-            placeholder="Search option values (e.g. XL, Crimson, 256GB)..."
+            placeholder="Search values (e.g. XL, Crimson, 256GB)..."
             placeholderTextColor={c.textMuted}
             value={search}
             onChangeText={setSearch}
             style={[styles.searchInput, { color: c.textPrimary }]}
           />
           {search ? (
-            <TouchableOpacity onPress={() => setSearch("")}>
+            <TouchableOpacity onPress={() => setSearch("")} style={{ padding: 4 }}>
               <X size={16} color={c.textMuted} />
             </TouchableOpacity>
           ) : null}
+          <TouchableOpacity
+            onPress={() => setSortOrder(sortOrder === "ASC" ? "DESC" : "ASC")}
+            style={[styles.sortBtn, { backgroundColor: theme.isDark ? "#1E293B" : "#EEF2FF", borderColor: c.primary }]}
+            activeOpacity={0.7}
+          >
+            <ArrowUpDown size={14} color={c.primary} />
+          </TouchableOpacity>
         </View>
 
         {/* ── 3. Attribute Filter Selector Pills ─────────────────────── */}
@@ -325,12 +387,12 @@ export const AttributeValuesScreen: React.FC = () => {
           </TouchableOpacity>
 
           {attributes.map((attr) => {
-            const isSelected = String(selectedAttributeFilter) === String(attr.id);
-            const count = values.filter((v) => String(v.attribute_id) === String(attr.id)).length;
+            const isSelected = String(selectedAttributeFilter) === String(attr.Id);
+            const count = values.filter((v) => String(v.ProductAttributeId) === String(attr.Id)).length;
             return (
               <TouchableOpacity
-                key={String(attr.id)}
-                onPress={() => setSelectedAttributeFilter(attr.id)}
+                key={String(attr.Id)}
+                onPress={() => setSelectedAttributeFilter(attr.Id)}
                 style={[
                   styles.filterPill,
                   {
@@ -340,7 +402,7 @@ export const AttributeValuesScreen: React.FC = () => {
                 ]}
               >
                 <Text style={[styles.filterPillText, { color: isSelected ? "#FFFFFF" : c.textSecondary }]}>
-                  {attr.name} ({count})
+                  {attr.Name} ({count})
                 </Text>
               </TouchableOpacity>
             );
@@ -350,23 +412,22 @@ export const AttributeValuesScreen: React.FC = () => {
         {/* ── 4. Attribute Value Cards List ─────────────────────────── */}
         {loading && !refreshing ? (
           <DashboardSkeleton />
-        ) : error ? (
+        ) : error && values.length === 0 ? (
           <ErrorState message={error} onRetry={() => fetchValuesAndAttributes()} />
-        ) : filtered.length === 0 ? (
+        ) : values.length === 0 ? (
           <EmptyState
             title="No Option Values Found"
-            description="Add discrete values like Medium, Large, Navy Blue to configure variants."
+            description="Click '+ Add Value' to define choices under this product attribute."
           />
         ) : (
-          filtered.map((item) => {
-            const isHex = item.code?.startsWith("#");
-            const parentAttr = attributes.find((a) => String(a.id) === String(item.attribute_id));
+          values.map((item) => {
+            const isHex = item.AttributeValueCode?.startsWith("#");
             return (
-              <Card key={String(item.id)} style={styles.card}>
+              <Card key={String(item.Id)} style={styles.card}>
                 <View style={styles.cardRow}>
                   {/* Swatch or Icon */}
                   {isHex ? (
-                    <View style={[styles.colorBox, { backgroundColor: item.code }]} />
+                    <View style={[styles.colorBox, { backgroundColor: item.AttributeValueCode }]} />
                   ) : (
                     <View style={[styles.iconBox, { backgroundColor: theme.isDark ? "#1E293B" : "#EEF2FF" }]}>
                       <List size={18} color={c.primary} />
@@ -375,18 +436,19 @@ export const AttributeValuesScreen: React.FC = () => {
 
                   {/* Details Column */}
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.valName, { color: c.textPrimary }]}>{item.value}</Text>
-                    {parentAttr && (
-                      <Text style={[styles.parentName, { color: c.textMuted }]}>
-                        Attribute: {parentAttr.name}
+                    <Text style={[styles.valName, { color: c.textPrimary }]}>{item.Name}</Text>
+                    <View style={styles.attrMetaRow}>
+                      <Tag size={11} color={c.primary} />
+                      <Text style={[styles.parentName, { color: c.primary }]}>
+                        {item.attribute_name || "Attribute Option"}
                       </Text>
-                    )}
+                    </View>
                   </View>
 
                   {/* Code Badge */}
-                  {item.code ? (
+                  {item.AttributeValueCode ? (
                     <View style={[styles.codeBadge, { backgroundColor: theme.isDark ? "#1E293B" : "#F1F5F9", borderColor: c.border }]}>
-                      <Text style={[styles.codeText, { color: c.textSecondary }]}>{item.code}</Text>
+                      <Text style={[styles.codeText, { color: c.textSecondary }]}>{item.AttributeValueCode}</Text>
                     </View>
                   ) : null}
 
@@ -429,10 +491,10 @@ export const AttributeValuesScreen: React.FC = () => {
             <View style={styles.modalHeader}>
               <View>
                 <Text style={[styles.modalTitle, { color: c.textPrimary }]}>
-                  {modalMode === "add" ? "Add Option Value" : "Edit Option Value"}
+                  {modalMode === "add" ? "Create Option Value" : "Edit Option Value"}
                 </Text>
                 <Text style={[styles.modalSubtitle, { color: c.textMuted }]}>
-                  Define discrete choice for product attributes
+                  REST API: POST /product-attribute-values
                 </Text>
               </View>
               <TouchableOpacity
@@ -446,14 +508,16 @@ export const AttributeValuesScreen: React.FC = () => {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
               {/* Parent Attribute Picker */}
               <View style={styles.pickerSection}>
-                <Text style={[styles.pickerLabel, { color: c.textSecondary }]}>Target Product Attribute *</Text>
+                <Text style={[styles.pickerLabel, { color: c.textSecondary }]}>
+                  Target Product Attribute (ProductAttributeId) *
+                </Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerPillsScroll}>
                   {attributes.map((a) => {
-                    const isSel = String(attrId) === String(a.id);
+                    const isSel = String(productAttributeId) === String(a.Id);
                     return (
                       <TouchableOpacity
-                        key={String(a.id)}
-                        onPress={() => setAttrId(a.id)}
+                        key={String(a.Id)}
+                        onPress={() => setProductAttributeId(a.Id)}
                         style={[
                           styles.pickerPill,
                           {
@@ -463,7 +527,7 @@ export const AttributeValuesScreen: React.FC = () => {
                         ]}
                       >
                         <Text style={[styles.pickerPillText, { color: isSel ? "#FFFFFF" : c.textSecondary }]}>
-                          {a.name}
+                          {a.Name}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -471,32 +535,84 @@ export const AttributeValuesScreen: React.FC = () => {
                 </ScrollView>
               </View>
 
+              {/* Color Presets Palette Strip */}
+              <View style={styles.presetSection}>
+                <Text style={[styles.presetLabel, { color: c.textSecondary }]}>Quick Color Presets</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetsScroll}>
+                  {COLOR_PRESETS.map((preset) => (
+                    <TouchableOpacity
+                      key={preset.hex}
+                      onPress={() => handleSelectColorPreset(preset)}
+                      style={[
+                        styles.presetChip,
+                        {
+                          borderColor: attributeValueCode === preset.hex ? c.primary : c.border,
+                          backgroundColor: theme.isDark ? "#1E293B" : "#F8FAFC",
+                        },
+                      ]}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.presetDot, { backgroundColor: preset.hex }]} />
+                      <Text style={[styles.presetText, { color: c.textPrimary }]}>{preset.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
               <TextField
-                label="Option Value *"
+                label="Option Value Display Name (Name) *"
                 placeholder="e.g. Extra Large, Midnight Navy, 512GB"
-                value={valText}
-                onChangeText={setValText}
+                value={name}
+                onChangeText={setName}
               />
 
               <TextField
-                label="Code / Color Hex (Optional)"
-                placeholder="e.g. XL, 512G, or #1E3A8A"
-                value={valCode}
-                onChangeText={setValCode}
+                label="Value Identifier Code or Color Hex (AttributeValueCode)"
+                placeholder="e.g. size_xl, storage_512gb, or #1E3A8A"
+                value={attributeValueCode}
+                onChangeText={setAttributeValueCode}
               />
 
-              {valCode.startsWith("#") && (
+              {/* ── Disabled Company Input with Company Name ────────── */}
+              <View style={styles.disabledInputContainer}>
+                <Text style={[styles.fieldLabel, { color: c.textSecondary }]}>Company (CompanyId)</Text>
+                <View
+                  style={[
+                    styles.disabledInputBox,
+                    {
+                      backgroundColor: theme.isDark ? "#0F172A" : "#F1F5F9",
+                      borderColor: c.border,
+                    },
+                  ]}
+                >
+                  <View style={styles.companyRow}>
+                    <Building2 size={16} color={c.primary} />
+                    <Text style={[styles.companyText, { color: c.textPrimary }]}>
+                      {companyName}
+                    </Text>
+                  </View>
+                  <View style={[styles.lockBadge, { backgroundColor: theme.isDark ? "#1E293B" : "#E2E8F0" }]}>
+                    <Lock size={12} color={c.textMuted} />
+                    <Text style={[styles.lockBadgeText, { color: c.textMuted }]}>Auto-Assigned (ID: #{defaultCompanyId})</Text>
+                  </View>
+                </View>
+                <Text style={[styles.helperText, { color: c.textMuted }]}>
+                  Company context is fixed based on your organization account.
+                </Text>
+              </View>
+
+              {attributeValueCode.startsWith("#") && (
                 <View style={styles.hexPreviewRow}>
-                  <View style={[styles.hexPreviewBox, { backgroundColor: valCode }]} />
+                  <View style={[styles.hexPreviewBox, { backgroundColor: attributeValueCode }]} />
                   <Text style={[styles.hexPreviewText, { color: c.textSecondary }]}>
-                    Color preview swatch
+                    Active Color Preview Swatch ({attributeValueCode})
                   </Text>
                 </View>
               )}
 
               <View style={{ marginTop: 16 }}>
                 <PrimaryButton
-                  title={submitting ? "Saving..." : modalMode === "add" ? "Add Option Value" : "Save Changes"}
+                  title={submitting ? "Saving..." : modalMode === "add" ? "Create Option Value" : "Save Changes"}
                   onPress={handleSave}
                   disabled={submitting}
                 />
@@ -559,6 +675,14 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
   },
+  sortBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   attrFilterScroll: {
     flexGrow: 0,
     height: 38,
@@ -607,9 +731,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
   },
+  attrMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
   parentName: {
     fontSize: 11,
-    marginTop: 2,
+    fontWeight: "700",
   },
   codeBadge: {
     paddingHorizontal: 8,
@@ -688,11 +818,87 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
+  presetSection: {
+    marginVertical: 6,
+  },
+  presetLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  presetsScroll: {
+    flexDirection: "row",
+  },
+  presetChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    marginRight: 6,
+    gap: 6,
+  },
+  presetDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.15)",
+  },
+  presetText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  disabledInputContainer: {
+    marginVertical: 8,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  disabledInputBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  companyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  companyText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  lockBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
+  },
+  lockBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  helperText: {
+    fontSize: 10,
+    marginTop: 4,
+    marginLeft: 2,
+  },
   hexPreviewRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 4,
+    marginTop: 6,
     paddingHorizontal: 4,
   },
   hexPreviewBox: {
@@ -704,5 +910,6 @@ const styles = StyleSheet.create({
   },
   hexPreviewText: {
     fontSize: 11,
+    fontWeight: "600",
   },
 });

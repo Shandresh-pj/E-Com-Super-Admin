@@ -1,6 +1,7 @@
 import { axiosClient } from '../../../api/axiosClient';
 import { ENDPOINTS } from '../../../api/endpoints';
 import { normalizeApiResponse } from '../../../api/responseNormalizer';
+import { useAuthStore } from '../../../store/authStore';
 
 export interface Branch {
   id: number | string;
@@ -53,8 +54,12 @@ export class BranchService {
    * Create a new company branch (POST /branches)
    * Requires: company_id, name, location, email, phone
    */
-  static async createBranch(branchData: Partial<Branch>): Promise<Branch> {
+  static async createBranch(branchData: Partial<Branch> & { company_id?: number }): Promise<Branch> {
+    const authUser = useAuthStore.getState().user;
+    const companyId = Number(branchData.company_id || authUser?.company_id || (authUser as any)?.companyId || 1);
+
     const payload = {
+      company_id: companyId,
       name: branchData.name,
       location: branchData.address || branchData.location || '',
       address: branchData.address || '',

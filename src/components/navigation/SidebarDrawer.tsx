@@ -386,10 +386,15 @@ export const SidebarDrawer: React.FC = () => {
             break;
 
           // ── Product Attributes & Masters ─────────────────────────
+          case '/product-attribute':
           case '/product-attributes':
+          case '/attributes':
             navigation.navigate('ProductAttributes');
             break;
+          case '/attribute-value':
           case '/attribute-values':
+          case '/product-attribute-value':
+          case '/product-attribute-values':
             navigation.navigate('AttributeValues');
             break;
 

@@ -63,7 +63,9 @@ export const ENDPOINTS = {
   // ── 7. Product Attributes & Values ───────────────────────────────────
   PRODUCT_ATTRIBUTES: '/product-attributes',
   PRODUCT_ATTRIBUTE_BY_ID: (id: string | number) => `/product-attributes/${id}`,
-  ATTRIBUTE_VALUES: '/attribute-values',
+  PRODUCT_ATTRIBUTE_VALUES: '/product-attribute-values',
+  PRODUCT_ATTRIBUTE_VALUE_BY_ID: (id: string | number) => `/product-attribute-values/${id}`,
+  ATTRIBUTE_VALUES: '/product-attribute-values',
 
   // ── 8. Categories ────────────────────────────────────────────────────
   CATEGORIES: '/categories',
@@ -139,7 +141,7 @@ export const ENDPOINTS = {
   // ── 17. System Alerts & Notifications ────────────────────────────────
   ALERTS: '/alerts',
   ALERT_BY_ID: (id: string | number) => `/alerts/${id}`,
-  ALERT_DISMISS: (id: string | number) => `/alerts/${id}/dismiss`,
+  ALERT_DISMISS: (id: string | number) => `/alerts/${id}`,
   NOTIFICATIONS: '/notifications',
   NOTIFICATION_BY_ID: (id: string | number) => `/notifications/${id}`,
   NOTIFICATION_READ: (id: string | number) => `/notifications/${id}/read`,
@@ -317,6 +319,8 @@ export const ENDPOINTS = {
   CHAT_KEYS: '/chat/keys',
   TEAM_MEETINGS: '/meetings',
   TEAM_MEETING_BY_ID: (id: string | number) => `/meetings/${id}`,
+  TEAM_MEETING_JOIN: (id: string | number) => `/meetings/${id}/join`,
+  TEAM_MEETING_END: (id: string | number) => `/meetings/${id}/end`,
 
   // ── 34. Mobility & Logistics Platform ─────────────────────────────────
   MOBILITY_COCKPIT: '/mobility/fleet/metrics',
